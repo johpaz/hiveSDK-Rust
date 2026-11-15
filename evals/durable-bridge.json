@@ -1,0 +1,35 @@
+{
+  "scope": "Local durable JSON bridge bytes with deterministic replies; no remote calls or billing claims. Timer counts/timings are informational and excluded from this report.",
+  "cases": [
+    {
+      "history_turns": 20,
+      "history_chars_per_message": 1024,
+      "tool_rounds": 3,
+      "max_context_bytes": null,
+      "legacy": {
+        "sent_bytes": 91284,
+        "received_bytes": 1351862
+      },
+      "handle": {
+        "sent_bytes": 1365,
+        "received_bytes": 349096
+      },
+      "note": "Actual CAS/checkpoint writes, claims and commit included. Setup/history ingestion and explicit getter excluded; model action context included. Random IDs have fixed lengths."
+    },
+    {
+      "history_turns": 60,
+      "history_chars_per_message": 1024,
+      "tool_rounds": 12,
+      "max_context_bytes": 16384,
+      "legacy": {
+        "sent_bytes": 269371,
+        "received_bytes": 7463838
+      },
+      "handle": {
+        "sent_bytes": 4701,
+        "received_bytes": 414561
+      },
+      "note": "Actual CAS/checkpoint writes, claims and commit included. Setup/history ingestion and explicit getter excluded; model action context included. Random IDs have fixed lengths."
+    }
+  ]
+}

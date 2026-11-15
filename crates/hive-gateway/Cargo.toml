@@ -1,0 +1,38 @@
+[package]
+name = "hive-gateway-rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hive-agent-core = { workspace = true, features = ["services", "harness", "scheduler"] }
+hivedb-core = { git = "https://github.com/johpaz/hive-db.git", rev = "10fcd921d79872db881914f2e3f45bb3c20ed917" }
+serde.workspace = true
+serde_json.workspace = true
+http = "1"
+httparse = "1"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+ring = "0.17"
+hex = "0.4"
+sha2 = "0.10"
+subtle = "2"
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust", "apple-native", "windows-native"] }
+libloading = "0.8"
+fs4 = "0.8"
+uuid = { version = "1", features = ["v4"] }
+time = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.9"
+libc = "0.2"
+base64 = "0.22"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus-secret-service = { version = "4", features = ["crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }

@@ -1,0 +1,7 @@
+# Validación del SDK con el proyecto local
+
+La documentación deja una fotografía del avance y un runbook para un consumidor aislado del paquete precompilado. Hive local declara Bun >=1.4.4; el SDK npm se valida en Node >=24. La primera prueba usa un proceso Node separado y solo lee name/version del package.json del proyecto elegido. Importar el bootstrap de Hive o conectar otro agent loop ampliaría el alcance y los efectos de la prueba. La conexión posterior con funciones de negocio se describe como trabajo pendiente.
+
+El ejemplo se copia al consumidor npm para resolver los paquetes instalados allí. Por defecto usa un proveedor determinista sin red; live es opt-in con modelo y endpoint explícitos. Cada invocación crea su propia base/objetivo/reporte, con máximo dos llamadas, una tool y caps de salida/tiempo/contexto. Verifica respuesta, número de efectos y reapertura sin otra inferencia. Los tokens de fixture se etiquetan como sintéticos. El reporte incluye versión/hash del binario instalado, contadores y latencia, sin configurar credenciales ni importar datos existentes.
+
+Se ejecuta únicamente la modalidad offline en este trabajo. La guía distingue ese resultado de calidad/costo con modelos reales, de integración con el backend de Hive y de publicación. Las pruebas de fallos/cancelación y negocio posterior se documentan con criterios de aceptación, sin implementar ni invocar servicios externos ahora.

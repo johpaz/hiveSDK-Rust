@@ -1,0 +1,442 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "hivedb-core",
+      "version": "0.7.3",
+      "source": "git+https://github.com/johpaz/hive-db.git?rev=10fcd921d79872db881914f2e3f45bb3c20ed917#10fcd921d79872db881914f2e3f45bb3c20ed917",
+      "vcs_commit": "10fcd921d79872db881914f2e3f45bb3c20ed917",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/johpaz/hive-db/10fcd921d79872db881914f2e3f45bb3c20ed917/LICENSE",
+          "commit": "10fcd921d79872db881914f2e3f45bb3c20ed917",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "name": "hivedb-index",
+      "version": "0.7.3",
+      "source": "git+https://github.com/johpaz/hive-db.git?rev=10fcd921d79872db881914f2e3f45bb3c20ed917#10fcd921d79872db881914f2e3f45bb3c20ed917",
+      "vcs_commit": "10fcd921d79872db881914f2e3f45bb3c20ed917",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/johpaz/hive-db/10fcd921d79872db881914f2e3f45bb3c20ed917/LICENSE",
+          "commit": "10fcd921d79872db881914f2e3f45bb3c20ed917",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "name": "jni",
+      "version": "0.22.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498",
+      "vcs_commit": "5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-APACHE",
+          "commit": "5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-MIT",
+          "commit": "5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7",
+          "sha256": "fea1d5bf3dd71605ce5d7d2ff695c1837e914c77195e523a86b5391716477960"
+        }
+      ]
+    },
+    {
+      "name": "jni-macros",
+      "version": "0.22.4",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3",
+      "vcs_commit": "33045a124105c939d1e2cbdcb5a39e5d868ffa03",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/jni-rs/jni-rs/33045a124105c939d1e2cbdcb5a39e5d868ffa03/LICENSE-APACHE",
+          "commit": "33045a124105c939d1e2cbdcb5a39e5d868ffa03",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/jni-rs/jni-rs/33045a124105c939d1e2cbdcb5a39e5d868ffa03/LICENSE-MIT",
+          "commit": "33045a124105c939d1e2cbdcb5a39e5d868ffa03",
+          "sha256": "fea1d5bf3dd71605ce5d7d2ff695c1837e914c77195e523a86b5391716477960"
+        }
+      ]
+    },
+    {
+      "name": "jni-sys-macros",
+      "version": "0.4.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264",
+      "vcs_commit": "64d77b7a5f119d7b55b4e2c169a4668067ff59e6",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-APACHE",
+          "commit": "64d77b7a5f119d7b55b4e2c169a4668067ff59e6",
+          "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT",
+          "commit": "64d77b7a5f119d7b55b4e2c169a4668067ff59e6",
+          "sha256": "1d85bd754b04ceec93e98e890edd1fa3c6a22e81bcb32135806beeccefa51cd1"
+        }
+      ]
+    },
+    {
+      "name": "jsonschema-regex",
+      "version": "0.58.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "a968fffd387b2ab005bf00c1851f5d26e90df05b6f7ad609ed0d620033cca5e7",
+      "vcs_commit": "55ac1664384793c5d3b20745d3f9c169dfe2c06f",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/Stranger6667/jsonschema/55ac1664384793c5d3b20745d3f9c169dfe2c06f/LICENSE",
+          "commit": "55ac1664384793c5d3b20745d3f9c169dfe2c06f",
+          "sha256": "117829c3ca21efb132d81a44b55363d395ab8eea18526873bc828da4c0e5f038"
+        }
+      ]
+    },
+    {
+      "name": "jsonschema-value",
+      "version": "0.58.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "39b7670345e5ce87371339d13705dbb9276b7e3e934bbe1efa2c6734a1f65a96",
+      "vcs_commit": "55ac1664384793c5d3b20745d3f9c169dfe2c06f",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/Stranger6667/jsonschema/55ac1664384793c5d3b20745d3f9c169dfe2c06f/LICENSE",
+          "commit": "55ac1664384793c5d3b20745d3f9c169dfe2c06f",
+          "sha256": "117829c3ca21efb132d81a44b55363d395ab8eea18526873bc828da4c0e5f038"
+        }
+      ]
+    },
+    {
+      "name": "napi",
+      "version": "3.14.2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "a4e2cf85c02d9b057898c485b824c3c416b65193689e2b7f517efc94b86ed24c",
+      "vcs_commit": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/8bab46ee5dfd48a7b51e8bad3d09aed315ada4df/LICENSE",
+          "commit": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df",
+          "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+        }
+      ]
+    },
+    {
+      "name": "napi-build",
+      "version": "2.6.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "b899b545d3aa6dca985939059f258c5488d34e4ecf39c274e20009748f4b846d",
+      "vcs_commit": "a94cef33f62e74682963dd085e283f52dcec2600",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/a94cef33f62e74682963dd085e283f52dcec2600/LICENSE",
+          "commit": "a94cef33f62e74682963dd085e283f52dcec2600",
+          "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+        }
+      ]
+    },
+    {
+      "name": "napi-derive",
+      "version": "3.6.12",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "92cec6048ac04041ac8055bdce1ec4f353416cd443ba9222bf73af790c3d4495",
+      "vcs_commit": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/8bab46ee5dfd48a7b51e8bad3d09aed315ada4df/LICENSE",
+          "commit": "8bab46ee5dfd48a7b51e8bad3d09aed315ada4df",
+          "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+        }
+      ]
+    },
+    {
+      "name": "napi-derive-backend",
+      "version": "6.1.5",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "fae2444f4ba7333754bb73414ff8059dec2cb23b83a95bd1a0bf08169eed1be0",
+      "vcs_commit": "4694e6d7c7d7eb2ac6b9a634374c3519a9e5851f",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/4694e6d7c7d7eb2ac6b9a634374c3519a9e5851f/LICENSE",
+          "commit": "4694e6d7c7d7eb2ac6b9a634374c3519a9e5851f",
+          "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+        }
+      ]
+    },
+    {
+      "name": "napi-sys",
+      "version": "3.4.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "e22a4f25c16a5c5411d987cd6fbd48313522ae1789ade2d6dd3efdc6d40a0fc8",
+      "vcs_commit": "37109f133043aff379a38edfb8b1548e7e9309e5",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/37109f133043aff379a38edfb8b1548e7e9309e5/LICENSE",
+          "commit": "37109f133043aff379a38edfb8b1548e7e9309e5",
+          "sha256": "3f1ce66533302df3a32edbfdfc0b78f0dd34659e4c1f5817162e5ea3c2297215"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/napi-rs/napi-rs/37109f133043aff379a38edfb8b1548e7e9309e5/crates/sys/LICENSE",
+          "commit": "37109f133043aff379a38edfb8b1548e7e9309e5",
+          "sha256": "cb9560e9740c8ea359aa852a14ebfdffe856c0518da5917b321a3042bc805052"
+        }
+      ]
+    },
+    {
+      "name": "ownedbytes",
+      "version": "0.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "c3a059efb063b8f425b948e042e6b9bd85edfe60e913630ed727b23e2dfcc558",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "r-efi",
+      "version": "5.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f",
+      "packaged_evidence": [
+        "AUTHORS"
+      ],
+      "documents": [],
+      "note": "Packaged AUTHORS contains license grants and copyright notices."
+    },
+    {
+      "name": "r-efi",
+      "version": "6.0.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf",
+      "packaged_evidence": [
+        "AUTHORS"
+      ],
+      "documents": [],
+      "note": "Packaged AUTHORS contains license grants and copyright notices."
+    },
+    {
+      "name": "tantivy-bitpacker",
+      "version": "0.6.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "284899c2325d6832203ac6ff5891b297fc5239c3dc754c5bc1977855b23c10df",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tantivy-columnar",
+      "version": "0.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "12722224ffbe346c7fec3275c699e508fd0d4710e629e933d5736ec524a1f44e",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tantivy-common",
+      "version": "0.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "8019e3cabcfd20a1380b491e13ff42f57bb38bf97c3d5fa5c07e50816e0621f4",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tantivy-query-grammar",
+      "version": "0.22.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "847434d4af57b32e309f4ab1b4f1707a6c566656264caa427ff4285c4d9d0b82",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tantivy-sstable",
+      "version": "0.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "c69578242e8e9fc989119f522ba5b49a38ac20f576fc778035b96cc94f41f98e",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tantivy-stacker",
+      "version": "0.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "c56d6ff5591fc332739b3ce7035b57995a3ce29a93ffd6012660e0949c956ea8",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tantivy-tokenizer-api",
+      "version": "0.3.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "2a0dcade25819a89cfe6f17d932c9cedff11989936bf6dd4f336d50392053b04",
+      "vcs_commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/LICENSE",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "acacd14bebbffdb30d62443c282fb4da3e81915a9f69c63d5d745a029f44de8a"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/quickwit-oss/tantivy/2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1/AUTHORS",
+          "commit": "2fb381be70c03d5f84dadcaf89ae2fcb4170c8c1",
+          "sha256": "141e25490cf9e0d3a05374171cb0a42c91a0cf0fb2041ba4c010f466e89b596d"
+        }
+      ]
+    },
+    {
+      "name": "tiktoken-rs",
+      "version": "0.12.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "2aeff724640cfe13037336ddf35befdffd2909cbdb65cf041cc8a4cf8c584cfa",
+      "vcs_commit": "72a5a800651a1cea1ad609292446ba02c80e3bcd",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/zurawiki/tiktoken-rs/72a5a800651a1cea1ad609292446ba02c80e3bcd/LICENSE",
+          "commit": "72a5a800651a1cea1ad609292446ba02c80e3bcd",
+          "sha256": "f7c6ddf9d84fd7b8ad5917e4074d4c05e4c1dfb752a28a0058f06bd0f5e2edcc"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/openai/tiktoken/4e71bbe0c078468e00fefbf94b39849389f346e5/LICENSE",
+          "commit": "4e71bbe0c078468e00fefbf94b39849389f346e5",
+          "sha256": "418cb499b436128d653d79941333a5437b7be2ea9213dcc2f04d15d5d2c51d86",
+          "via_submodule": {
+            "tree_url": "https://api.github.com/repos/zurawiki/tiktoken-rs/git/trees/72a5a800651a1cea1ad609292446ba02c80e3bcd?recursive=1",
+            "tree_sha256": "c8e4a9a79892ca92c2da8cf24f99aa575e9036afbb7f840c45f2016bee87cf0e",
+            "gitmodules_sha256": "a7f8deeb5f5d15cab6efdd84672e7ad062020838e316cfed3b30a5ce543d23a9",
+            "path": "vendor/tiktoken",
+            "source_path": "tiktoken-rs/src/vendor_tiktoken.rs",
+            "packaged_path": "src/vendor_tiktoken.rs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "uuid-simd",
+      "version": "0.8.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8",
+      "vcs_commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+          "commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+          "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+        }
+      ]
+    },
+    {
+      "name": "valuable",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65",
+      "vcs_commit": "9efc29b6e58cef28f6566a47aa7e142a55fead77",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/tokio-rs/valuable/9efc29b6e58cef28f6566a47aa7e142a55fead77/LICENSE",
+          "commit": "9efc29b6e58cef28f6566a47aa7e142a55fead77",
+          "sha256": "ed60d479b8fd1f64e9cbc3de449a16a53ac1b3d1b6aeb9bf9d190a8e93061b44"
+        }
+      ]
+    },
+    {
+      "name": "vsimd",
+      "version": "0.8.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64",
+      "vcs_commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+          "commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+          "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+        }
+      ]
+    }
+  ],
+  "manual_reviews": [
+    {
+      "name": "tiktoken-rs",
+      "version": "0.12.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "reason": "review_embedded_tokenizer_assets_attribution"
+    }
+  ]
+}

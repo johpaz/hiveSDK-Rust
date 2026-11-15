@@ -1,0 +1,11 @@
+# Handles del motor en memoria
+
+Los agentes sin store conservarán el motor en Rust. El puente intercambiará comandos pequeños y acciones; solo una acción de modelo llevará el contexto seleccionado necesario para el proveedor. El historial completo se exportará al consultar messages o leer una fuente explícita. El camino durable mantiene por ahora el puente de checkpoints existente; su migración y el I/O asíncrono siguen pendientes antes de producción.
+
+Se elige un handle propietario por agente frente a un registro global de IDs o a agrupar comandos sin conservar estado. Evita IDs reutilizados y liberación manual; el binding y su recolector liberan el objeto. Un mutex protege llamadas nativas concurrentes y Python libera el GIL. No se invocan callbacks bajo el mutex. Las operaciones siguen síncronas en este paso; no contiene I/O de almacenamiento.
+
+El handle conserva un motor confirmado y un motor de trabajo opcional. start clona el confirmado una vez por turno; reply/tool_result/reject/tick mutan el de trabajo. commit solo acepta una acción terminal y reemplaza el confirmado. abort descarta el de trabajo en finally ante error, cancelación, cierre de iterador o resultado no confirmado. Así messages durante un turno sigue mostrando el historial confirmado y un fallo no publica resultados parciales. No se restauran snapshots aportados por el anfitrión. Las reservas del objetivo raíz siguen conservando su comportamiento actual ante fallos.
+
+Las consultas de contexto actúan sobre el confirmado; cambiar el plan mientras existe trabajo falla. Los getters continúan disponibles después del cierre público del agente, conforme al contrato previo. La vida del handle sigue ligada a la del objeto. Reanudar y coordinar transacciones durables mantiene el camino actual sin trasladar su control al wrapper.
+
+Validación: equivalencia de acciones/resultados frente al puente anterior, prohibición de commit parcial/doble start, rollback después de errores y cancelación, mensajes defensivos durante/después de un turno, contexto/resúmenes y presupuestos. Ejecutar las suites de ambos bindings y medir bytes enviados/recibidos por el puente para la misma conversación, separando el payload inevitable de las acciones de modelo. La medición es local y no acredita ahorro de tokens ni costo remoto.

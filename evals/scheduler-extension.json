@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-15",
+  "complete_plan": false,
+  "component": "native calendar and embeddable queue scheduler",
+  "reference": "docs/parity/ts-reference.json",
+  "contract": "docs/native-scheduler.md",
+  "source_sha256": {
+    "Cargo.lock": "4a5e3c206285ab70eb15005a7951fa34b655630959a9b14618a95be07b1fa4ed",
+    "crates/hive-core/Cargo.toml": "733c225091f5a8251887bebb457105374fbba71b7860ddd7fbad9ac543ea5ea9",
+    "crates/hive-core/src/lib.rs": "651ca7754588b5cdbce790f9888a70541780bb19fab770a45e73012bb714bfd7",
+    "crates/hive-core/src/scheduler.rs": "8d9de7b49fb88610de41c138f7bc52b7a1d5edd9862e20bc07962ef5e89ae513",
+    "crates/hive-core/src/harness.rs": "c73f04f6b89a6905ed1eaf2e9ba069b080e6c106e82bb4c9854e608ed1df902d",
+    "crates/hive-core/src/harness/schedules.rs": "2b82f61024ade0b06026e96bdd4c02002497ae71d637c1dcfc6df390ce617e0b",
+    "crates/hive-core/src/harness/schedule_tests.rs": "e9c26d65031889dc19984389b7068d2cb1bc35bf24699a9261799f78297a06f7",
+    "crates/hive-core/src/harness/tests.rs": "c9fdb2f2560201c7f4f09e1e47d88ac1c0fd76a075ed86799cf57020fa909ce8",
+    "crates/hive-napi/Cargo.toml": "db640625f69957eb4446a98f1330ba8046d1fe56106087ef4833850c92e4cedc",
+    "crates/hive-python/Cargo.toml": "cda79c1fe5d7fd4e47eaf87ecb1a9d03b9a58e9c2e22a780690128a733e2c75e",
+    "crates/hive-gateway/Cargo.toml": "998636a55b3c1435f8a5b27b9c8a7efb16febfd1b7ee56da25c1465e7b8db134",
+    "crates/hive-gateway/src/scheduler.rs": "2f14bbd530af10f95d34a57061d5e08de25ec6a20ee2074c47296ee357307118",
+    "packages/npm/queue.mjs": "2e5257a8e23486f6844468a610e5c5777fc79d13d64d22a3291bb0ab7e6874f5",
+    "packages/npm/index.d.ts": "b4963faf40117e01932f3ffb1ea93f20cb30ca48d8100cf849017f80440ed0f3",
+    "packages/npm/test/scheduler.test.mjs": "ff8d9b0f086bce49aaff8107072809f65aaf699fa896db8029ab7179d9660212",
+    "packages/python/python/hive_sdk/queue.py": "9022599a254990bab237a9ddb5c6e92b7b89916eff3f40f748a8ed3afe79f41e",
+    "packages/python/python/hive_sdk/__init__.py": "7287c2c6c5b9603efb184b2e70426913142d19cfbae67a93deaa113bd7e9c4c9",
+    "packages/python/tests/test_scheduler.py": "e801a12ec9cd297daf0118d418b74142874269781f89467eb9a6addf6279e623",
+    "tests/types/queue-consumer.ts": "d64905d98be79db3d23d8057e2df314812c4e4d3d5598db76210b1a3977176c0",
+    "tests/scheduler-parity.py": "223f6e2efd601790c0862693bb75b29e53495e53aed2552a07ac9257997468ad",
+    "tests/parity/calendar-cases.json": "96d8eda07989ae39b5ef3a4615078fdc2b99b146c0e46a7da17b532c3a574ce0",
+    "tests/parity/scheduler-ts.ts": "81dbd28d43623e3d19e16ecdc735bc877a58e0bd054e14afe5faad1e99915bb9",
+    "tests/parity/scheduler-rust.mjs": "411edcab45b9dcfd23c92c0c5a4501d3ff16148eaf6f87b8199fa96d1328ef99",
+    "scripts/compare-ts-parity.py": "9ad750045655e51087295548af578570c1cdb6b7e76c36b84dc707e735eb14ce",
+    ".github/workflows/ci.yml": "21659914d321d89978518aadbae325d5546eff5eb3bd38caafa635b1f507099c",
+    "docs/native-scheduler.md": "fad5101525f14be5035fa67ec8e7b62638baee53c62f96464dabc04877b4b979",
+    "docs/plans/2026-11-15-native-scheduler-design.md": "1309d6695bda3371465f1ee5b973b87f5591db97cb1d54abbbe0ac9c4b023528",
+    "docs/parity/capabilities.json": "427c5d7fe429ccfde8a7b432b2a766fde9dcac0d9fd84f8ec2ca0f5f34f31607",
+    "docs/parity.md": "57e17bf931628e1121993f1193c9651c66b6a31fb13cef81cf2fd2357769f188",
+    "PLAN.md": "9aa3aaef48050ab3a6f8920e6186c94896c020fc973e5fc06489e2ae713894c7",
+    "README.md": "e42364d6d8e406c62f56d984a1b64050909ce9d5b4866cfafedd7269195ed560"
+  },
+  "checks": {
+    "workspace_build": "passed; development npm/Python bindings rebuilt after final native changes",
+    "format": "passed",
+    "clippy_all_targets_all_features": "passed with -D warnings",
+    "minimal_core": "passed with no default features and with harness only",
+    "typescript_consumer": "passed strict compilation",
+    "rust_lib_with_scheduler": {
+      "passed": 44,
+      "failed": 0,
+      "new_scheduler_tests": 9
+    },
+    "gateway_selected": {
+      "passed": 57,
+      "failed": 0,
+      "excluded_tcp_tests": 3,
+      "inactive_subprocess_helper_included": 1,
+      "new_scheduler_test": "interrupted task stays uncertain and blocks both automatic/manual replay"
+    },
+    "node_26_selected": {
+      "passed": 10,
+      "failed": 0,
+      "includes": [
+        "queue",
+        "scheduler"
+      ],
+      "note": "process isolation disabled"
+    },
+    "node_24_scheduler": {
+      "passed": 3,
+      "failed": 0
+    },
+    "python_310_selected": {
+      "passed": 10,
+      "failed": 0,
+      "includes": [
+        "queue",
+        "scheduler"
+      ]
+    },
+    "python_315_scheduler": {
+      "passed": 3,
+      "failed": 0
+    },
+    "python_environment": "external event-loop heartbeat used for sandbox worker notification limits",
+    "node_python_node_scheduler_recovery": "passed; abrupt Node exit after first fixture effect, Python observes blocked uncertainty, reconciles first occurrence, publishes/runs second once, Node verifies two effects and two root charges",
+    "selected_ts_comparison": {
+      "memory": "passed",
+      "skills": "passed",
+      "queue": "passed",
+      "delegation": "passed",
+      "scheduler": {
+        "equivalent_cases": 9,
+        "intentional_difference": {
+          "expression": "0 0 */2 * *",
+          "from": "2026-11-01T00:00:00Z",
+          "timezone": "UTC",
+          "ts_reference_next": "2026-11-02T00:00:00.000Z",
+          "native_next": "2026-11-03T00:00:00.000Z",
+          "reason": "wildcard day steps now mark the field restricted so the allowed days are honored; native regression failed before the fix"
+        }
+      }
+    },
+    "live_models_or_real_accounts": "not used",
+    "remote_ci": "workflow updated, not run remotely",
+    "full_network_and_platform_matrix": "not certified"
+  },
+  "limits": [
+    "Gateway shares calendar calculation; its cronJobs/taskRuns runtime has not been migrated into schedule/job queue records.",
+    "Objective event/calendar callback triggers retain their existing ledger/API; cron triggers there and general scheduler API parity remain pending.",
+    "Definitions are immutable; replacement uses a new ID, with old schedule paused explicitly; editing/deletion/archive/purge APIs are pending.",
+    "Producer loops publish only; callers drive workers/executors separately. Errors stop the producer; stopping it does not cancel previously published jobs.",
+    "A nonterminal job blocks the next due publication. Lost/uncertain work must be maintained and reconciled explicitly.",
+    "Publication limits and root policy/counters persist; no automatic fresh objective per occurrence or refunded unknown model allowance.",
+    "Pinned chrono-tz 0.9 zone catalog, eight-year search horizon and first-instant ambiguity handling may differ from TS/Intl.",
+    "Node/Python host loops drive native commands; calendar, policies, idempotency, scheduling state and transactions remain Rust, without auxiliary backend processes.",
+    "Publication remains disabled; dependency notice inventory needs regeneration for the updated Cargo.lock and existing platform/license review gates remain pending.",
+    "Projects are excluded and the full SDK parity plan remains incomplete."
+  ]
+}

@@ -1,0 +1,486 @@
+{
+  "schema_version": 1,
+  "reference": "ts-reference.json",
+  "complete": false,
+  "capabilities": [
+    {
+      "id": "agent_loop",
+      "capability": "Agents, tools, streaming and cancellation",
+      "status": "partial",
+      "notes": "Core and bindings exist; differential TS suite pending",
+      "rust_evidence": "crates/hive-core/src/lib.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/api/index.ts",
+        "packages/core/src/agent/agent-loop.ts"
+      ]
+    },
+    {
+      "id": "sessions",
+      "capability": "HiveDB sessions, checkpoints and reconciliation",
+      "status": "partial",
+      "notes": "Rust-native contracts exist; no legacy data migration",
+      "rust_evidence": "crates/hive-core/src/sessions.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/sessions/index.ts",
+        "packages/core/src/agent/run-store.ts"
+      ]
+    },
+    {
+      "id": "budgets",
+      "capability": "Turn and objective limits, shared reservations",
+      "status": "partial",
+      "notes": "Native implementation; TS behavior comparison pending",
+      "rust_evidence": "crates/hive-core/src/objective.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/agent-loop.ts",
+        "packages/core/src/agent/goal-runner.ts"
+      ]
+    },
+    {
+      "id": "context",
+      "capability": "Context compiler, compaction, BM25 capability selection",
+      "status": "partial",
+      "notes": "History selection and catalog BM25 exist; unified compiler pending",
+      "rust_evidence": "crates/hive-core/src/services.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/context-compiler.ts",
+        "packages/core/src/agent/compaction.ts"
+      ]
+    },
+    {
+      "id": "services",
+      "capability": "Embedded catalog CRUD for ten entity kinds",
+      "status": "partial",
+      "notes": "Async bindings, CAS, tenant scope and schema validation implemented; remaining TS service operations pending",
+      "rust_evidence": "crates/hive-core/tests/services.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/services/index.ts"
+      ]
+    },
+    {
+      "id": "credentials",
+      "capability": "Tenant-scoped credentials and secret backend",
+      "status": "partial",
+      "notes": "Desktop backend exists; embedded catalog rejects inline credentials; shared credential service pending",
+      "rust_evidence": "crates/hive-gateway/src/config.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/storage/crypto.ts",
+        "packages/core/src/storage/tenant.ts"
+      ]
+    },
+    {
+      "id": "catalog",
+      "capability": "Provider/model catalog, pricing and usage accounting",
+      "status": "partial",
+      "notes": "Desktop catalog exists; shared runtime and cost accounting pending",
+      "rust_evidence": "crates/hive-gateway/src/model_catalog.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/storage/seed.ts",
+        "packages/core/src/services/models.ts"
+      ]
+    },
+    {
+      "id": "memory",
+      "capability": "Persistent named memory and scratchpad",
+      "status": "partial",
+      "notes": "Memory CRUD, BM25 and five executable memory tools implemented; scratchpad pending",
+      "rust_evidence": "crates/hive-core/src/services/tools.rs",
+      "ts_differential_test": "scripts/compare-ts-parity.py --scenario memory",
+      "ts_sources": [
+        "packages/core/src/services/memory.ts",
+        "packages/core/src/memory/index.ts"
+      ]
+    },
+    {
+      "id": "skills",
+      "capability": "Native SKILL.md loading and workflow metadata",
+      "status": "partial",
+      "notes": "Bounded YAML import and BM25 implemented; bundled workflows and hot reload pending",
+      "rust_evidence": "crates/hive-core/src/services/skills.rs",
+      "ts_differential_test": "scripts/compare-ts-parity.py --scenario skills",
+      "ts_sources": [
+        "packages/core/src/skills/SkillLoader.ts"
+      ]
+    },
+    {
+      "id": "bundled_skills",
+      "capability": "Adapt bundled TS workflows to available executors",
+      "status": "pending",
+      "notes": "Do not enable workflows whose tools do not have executors",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/skills/bundled-data.generated.ts"
+      ]
+    },
+    {
+      "id": "providers",
+      "capability": "All configured TS LLM providers and capability mappings",
+      "status": "partial",
+      "notes": "OpenAI-compatible, Anthropic, Gemini and HiveAgents adapters exist; full provider matrix pending",
+      "rust_evidence": "crates/hive-core/src/provider.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/llm-client.ts",
+        "packages/core/src/agent/providers/index.ts"
+      ]
+    },
+    {
+      "id": "multimodal",
+      "capability": "Images/audio/document content parts in model requests",
+      "status": "pending",
+      "notes": "Current shared Message.content is text or null",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/multimodal/types.ts"
+      ]
+    },
+    {
+      "id": "oracle",
+      "capability": "Opt-in Jev/Kev decisions and review",
+      "status": "pending",
+      "notes": "Keep disabled by default; charge all auxiliary calls to root budget",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/jev-decisions.ts",
+        "packages/core/src/agent/jev-planner.ts"
+      ]
+    },
+    {
+      "id": "mcp_tools",
+      "capability": "MCP stdio and Streamable HTTP tools",
+      "status": "partial",
+      "notes": "Native clients implemented; manager and remaining transports pending",
+      "rust_evidence": "crates/hive-core/src/mcp.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/mcp/MCPClient.ts"
+      ]
+    },
+    {
+      "id": "mcp_resources_prompts",
+      "capability": "MCP resources, prompts and catalog reload",
+      "status": "partial",
+      "notes": "Resource and prompt operations implemented in Rust/npm/Python, including servers without tools. Manager, hot reload and other TS transports remain pending.",
+      "rust_evidence": "crates/hive-core/tests/mcp.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/mcp/MCPClient.ts"
+      ]
+    },
+    {
+      "id": "harness",
+      "capability": "Durable job queue, idempotency and lease recovery",
+      "status": "partial",
+      "notes": "Native durable queues/groups, local gateway specialist jobs and embeddable scheduled publication share durable accounting. General goal runner and full admin/gateway parity remain pending.",
+      "rust_evidence": "crates/hive-core/src/harness.rs",
+      "ts_differential_test": "scripts/compare-ts-parity.py --scenario queue",
+      "ts_sources": [
+        "packages/core/src/harness/index.ts",
+        "packages/core/src/gateway/durable-queue.ts"
+      ]
+    },
+    {
+      "id": "workers",
+      "capability": "Rust worker pool and async delegation fan-in",
+      "status": "partial",
+      "notes": "Rust WorkerPool and Node/Python callback batches support sealed groups. Local gateway task_delegate/task_delegate_group execute native specialist jobs, narrate parallel tasks and continue one coordinator checkpoint under a shared durable root. General bus, automatic specialist discovery and task revision remain pending.",
+      "rust_evidence": "crates/hive-core/src/harness/worker.rs",
+      "ts_differential_test": "scripts/compare-ts-parity.py --scenario delegation",
+      "ts_sources": [
+        "packages/core/src/workers/index.ts",
+        "packages/core/src/agent/delegation-runtime.ts"
+      ]
+    },
+    {
+      "id": "scheduler",
+      "capability": "Cron, timezone, manual execution and history",
+      "status": "partial",
+      "notes": "Shared native five/six-field cron calendar, IANA zones, at/interval schedules, paused registration, atomic queue publication, explicit misfire policies, nonoverlap, limits, pagination and opt-in producer loops implemented in Rust/Node/Python. Gateway shares calendar and preserves uncertain tasks. Nine TS calendar matches plus documented wildcard-day-step correction; full gateway storage/admin migration and scheduler API parity pending.",
+      "rust_evidence": "crates/hive-core/src/harness/schedules.rs",
+      "ts_differential_test": "scripts/compare-ts-parity.py --scenario scheduler",
+      "ts_sources": [
+        "packages/core/src/scheduler/index.ts"
+      ]
+    },
+    {
+      "id": "verification",
+      "capability": "Acceptance checks and durable proof packets",
+      "status": "partial",
+      "notes": "Explicit verifiers plus immutable group task proofs bound to completed job execution and result SHA-256; opt-in fan-in gating and durable evidence required for passed checks. General TS proof packet/goal runner parity pending.",
+      "rust_evidence": "crates/hive-core/src/harness/groups.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/goal-runner.ts",
+        "packages/core/src/agent/proof-packet.ts"
+      ]
+    },
+    {
+      "id": "filesystem_tools",
+      "capability": "Bounded filesystem tools",
+      "status": "pending",
+      "notes": "Native tools and sandbox policy pending",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/filesystem/index.ts"
+      ]
+    },
+    {
+      "id": "command_tools",
+      "capability": "Native command execution tools",
+      "status": "pending",
+      "notes": "No Node/Bun executor process",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/cli/index.ts"
+      ]
+    },
+    {
+      "id": "http_tools",
+      "capability": "HTTP/API tools and dynamic endpoints",
+      "status": "partial",
+      "notes": "Desktop native HTTP execution and catalog metadata exist; shared tools pending",
+      "rust_evidence": "crates/hive-gateway/src/integrations.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/api/index.ts",
+        "packages/core/src/services/endpoints.ts"
+      ]
+    },
+    {
+      "id": "web_search",
+      "capability": "Web search and extraction tools",
+      "status": "pending",
+      "notes": "Provider adapters and response contracts pending",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/web/web-search.ts",
+        "packages/core/src/tools/web/web-fetch.ts"
+      ]
+    },
+    {
+      "id": "browser",
+      "capability": "Native CDP navigate, evaluate, click, type, extract and screenshot",
+      "status": "partial",
+      "notes": "Rust and bindings implemented; local protocol tests pass; live Chromium blocked by sandbox socket syscalls",
+      "rust_evidence": "crates/hive-core/tests/browser.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/web/browser-service.ts"
+      ]
+    },
+    {
+      "id": "computer_use",
+      "capability": "Native desktop input and screenshots",
+      "status": "pending",
+      "notes": "No OS input backend implemented",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/web/computer-use.ts"
+      ]
+    },
+    {
+      "id": "office",
+      "capability": "Native PDF/DOCX/XLSX parsing and generation",
+      "status": "pending",
+      "notes": "Preserve TS file, row, page and execution limits",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/tools/office/index.ts"
+      ]
+    },
+    {
+      "id": "images_artifacts",
+      "capability": "Image transforms, artifact storage and retention",
+      "status": "pending",
+      "notes": "Shared bounded store and media processing pending",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/images/index.ts",
+        "packages/core/src/artifacts/store.ts"
+      ]
+    },
+    {
+      "id": "a2ui_canvas",
+      "capability": "Canvas and A2UI tool contracts",
+      "status": "partial",
+      "notes": "Desktop canvas events exist; shared generation tools pending",
+      "rust_evidence": "crates/hive-gateway/src/activity.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/canvas/index.ts",
+        "packages/core/src/tools/a2ui/index.ts"
+      ]
+    },
+    {
+      "id": "voice",
+      "capability": "STT/TTS provider coverage",
+      "status": "partial",
+      "notes": "Desktop Piper exists; other shared STT/TTS adapters pending",
+      "rust_evidence": "crates/hive-gateway/src/piper.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/voice/index.ts"
+      ]
+    },
+    {
+      "id": "realtime",
+      "capability": "Gemini Live audio and tool execution",
+      "status": "partial",
+      "notes": "Desktop implementation exists; embeddable binding parity pending",
+      "rust_evidence": "crates/hive-gateway/src/realtime.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/realtime-providers/index.ts"
+      ]
+    },
+    {
+      "id": "telegram",
+      "capability": "Native Telegram channel",
+      "status": "pending",
+      "notes": "Configurable in desktop, no running native adapter",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/channels/telegram.ts"
+      ]
+    },
+    {
+      "id": "discord",
+      "capability": "Native Discord channel",
+      "status": "pending",
+      "notes": "Configurable in desktop, no running native adapter",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/channels/discord.ts"
+      ]
+    },
+    {
+      "id": "slack",
+      "capability": "Native Slack channel",
+      "status": "pending",
+      "notes": "Configurable in desktop, no running native adapter",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/channels/slack.ts"
+      ]
+    },
+    {
+      "id": "webchat",
+      "capability": "WebChat sessions and transport",
+      "status": "partial",
+      "notes": "Desktop chat transport exists; channel abstraction pending",
+      "rust_evidence": "crates/hive-gateway/src/server.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/channels/webchat.ts"
+      ]
+    },
+    {
+      "id": "whatsapp_cloud",
+      "capability": "Native WhatsApp Cloud channel",
+      "status": "pending",
+      "notes": "Webhook validation, normalization and sending pending",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/channels/whatsapp-cloud/index.ts"
+      ]
+    },
+    {
+      "id": "whatsapp_qr",
+      "capability": "Native WhatsApp QR pairing and persistent sessions",
+      "status": "pending",
+      "notes": "Native Rust candidates found; dependency integration, pairing and live validation still pending",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/channels/whatsapp.ts"
+      ]
+    },
+    {
+      "id": "gateway",
+      "capability": "Optional HTTP/WebSocket gateway",
+      "status": "partial",
+      "notes": "Local Rune adapter now integrates native specialist queues/groups, per-turn durable objectives, parallel text delegation and parent checkpoint fan-in. Full shared multi-tenant/admin API parity remains pending.",
+      "rust_evidence": "crates/hive-gateway/src/server.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/gateway/index.ts"
+      ]
+    },
+    {
+      "id": "security_hooks",
+      "capability": "Authentication, rate limits, hooks and ethics",
+      "status": "partial",
+      "notes": "Desktop authentication exists; shared policy services and hooks pending",
+      "rust_evidence": "crates/hive-gateway/src/config.rs",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/security/index.ts",
+        "packages/core/src/hooks/index.ts"
+      ]
+    },
+    {
+      "id": "resilience",
+      "capability": "Explicit retries and circuit breakers",
+      "status": "pending",
+      "notes": "Do not retry uncertain external operations",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/resilience/index.ts"
+      ]
+    },
+    {
+      "id": "cli",
+      "capability": "Native agent/admin/jobs/trace CLI",
+      "status": "pending",
+      "notes": "Project generation commands excluded",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/cli/src/index.ts"
+      ]
+    },
+    {
+      "id": "distribution",
+      "capability": "Six-platform packages and install validation",
+      "status": "partial",
+      "notes": "Existing Linux previews; new code and complete platform matrix not yet released",
+      "rust_evidence": "docs/release-readiness.md",
+      "ts_differential_test": null,
+      "ts_sources": [
+        "package.json"
+      ]
+    },
+    {
+      "id": "projects",
+      "capability": "Project entities, services, tools, context and scaffolding",
+      "status": "excluded",
+      "notes": "Explicitly excluded by the user",
+      "rust_evidence": null,
+      "ts_differential_test": null,
+      "ts_sources": [
+        "packages/core/src/agent/prompt-builder.ts"
+      ]
+    }
+  ]
+}

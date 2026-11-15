@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "scope": "Bundled non-Cargo runtime library review. Separate from the Cargo inventory; not license clearance.",
+  "status": "incomplete",
+  "pending": [
+    {
+      "component": "libgcc_s.so.1",
+      "affects": [
+        "linux-x64-musl Python wheel"
+      ],
+      "builder_image": "quay.io/pypa/musllinux_1_2_x86_64@sha256:cf82db9d8dc8c5c2cb27f422208baf266ebc8ad70be4ab1bc79bcc8807a6432d",
+      "source_apk_package": "libgcc-14.2.0-r6",
+      "declared_package_license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "source_library_sha256": "0cd532bd6739a5419c5a14e8897ad4e9de0df77c9f4e8e6ba202e369a8c8b4e5",
+      "artifact": {
+        "path": "dist/wheels/johpaz_hive_sdk_rust-0.1.0-cp310-abi3-musllinux_1_2_x86_64.whl",
+        "sha256": "e3dd2042db7385a81a8f0c07ae691b3d4210d487abf02bfbd23f132df5f8f2af",
+        "bytes": 10995337
+      },
+      "wheel_library": {
+        "wheel_path": "johpaz_hive_sdk_rust.libs/libgcc_s-0cd532bd.so.1",
+        "sha256": "42b5f2c8ca13e5e173d837f5117a04b6c042437548112bde7879251ae8dcff8f"
+      },
+      "reason": "Review file-level attribution, notice texts and any applicable runtime exception; do not infer clearance from package-level metadata.",
+      "npm_scope": "The npm package links the system libgcc_s.so.1 and does not bundle this separate library."
+    }
+  ]
+}

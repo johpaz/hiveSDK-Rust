@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-15",
+  "complete_plan": false,
+  "component": "local gateway specialist groups and per-turn durable objectives",
+  "contract": "docs/gateway-durable-delegation.md",
+  "reference": "docs/parity/ts-reference.json",
+  "source_sha256": {
+    "Cargo.lock": "25038fb197938ae943a8569663bb0fb0be250bc87be05d87d926a70da4f1d91a",
+    "crates/hive-core/src/sessions.rs": "0f0e4a609392aa3c291ca7da0959aa98ca55dd264e8e69be7d3af80bc56eaf78",
+    "crates/hive-core/src/durable_handle.rs": "5351835a6c33c20a2ae0d9c264bcc720f6d7fac8b0634ccbf89bebed6b81d59f",
+    "crates/hive-core/tests/turn_objectives.rs": "ef9f5e6ba87eb1af961f8f43df3f95071a7f81f13dcc2c73d9f1a47e49edd1b2",
+    "crates/hive-gateway/Cargo.toml": "096704370896a1c7d806da391be54e36bad5e3cce4d5748b1e21dcf43fa0b612",
+    "crates/hive-gateway/src/config.rs": "483041ee08c63f9ad82f53617aeaa1fb0a2c197912c16f5e3cad3f86ee34d6e3",
+    "crates/hive-gateway/src/server.rs": "aa3e32a91d2fc1c56dc350e0cf1f95229a4212356f7d17c2cb15782c4b7b50ce",
+    "crates/hive-gateway/src/server/delegation.rs": "24b8b2bd7987a8894d3f53425eefdf8db863cb6c5be7a68bc4883b82e3bdd563",
+    "crates/hive-gateway/src/server/tests.rs": "358e1dadf7801c58c22666566adfd6477f298a9be89440ef0b38d43e192191e9",
+    ".github/workflows/ci.yml": "41ecd0a3381d05bbdb649fdedab088de70f0d3a25dad3391c617545032695a88",
+    "README.md": "7ec6a6d7ce23f9cbc6d4c99dea3cd87b09bd80b58fdff79b7ec6c50b2ef208d8",
+    "docs/durable-handles.md": "703a1847beaf1092d2a1a7166c600e61e5c395fbf931b56cfde67670b89536fc",
+    "docs/durable-delegation.md": "3d35d35a816eab3a94a6179173b1e737c0a2728115aac643846ff3bf2152f3c4",
+    "docs/gateway-durable-delegation.md": "de95a7247f5c93762792673a6971176ab38cdd38669b3fc27e051821a511641f",
+    "docs/plans/2026-11-15-gateway-durable-delegation-design.md": "5787613ffaf286573d5ce168fb31e73ac34c577544d6ad4e6aceed38cdb64a01",
+    "docs/parity.md": "ef5e3c100537e647135f9ed3772a6c4859031ad7e361e4e01b101d67ad5453f5",
+    "docs/parity/capabilities.json": "f807b3cbeb5956e8a6417398dba2ff48f4bb6320d67a5f190f41f6cc02adb50d"
+  },
+  "checks": {
+    "workspace_build": "passed; npm/Python development bindings rebuilt after native scope changes; gateway rebuilt after final adapter changes",
+    "format": "passed",
+    "clippy_all_features_all_targets": "passed with -D warnings",
+    "rust_core_selected": {
+      "passed": 95,
+      "failed": 0,
+      "targets": {
+        "lib_with_harness": 35,
+        "checkpoints": 8,
+        "summary": 10,
+        "triggers": 8,
+        "verification": 7,
+        "durable_handles": 6,
+        "objective_durable": 9,
+        "sessions": 8,
+        "turn_objectives": 4
+      }
+    },
+    "gateway_selected": {
+      "passed": 56,
+      "failed": 0,
+      "new_contracts": 4,
+      "inactive_subprocess_helper_included": 1,
+      "excluded_tcp_tests": [
+        "real_http_ws_sdk_streams_two_turns_and_reopens_hivedb",
+        "cancellation_and_provider_failure_are_not_retried",
+        "copied_credentials_protect_rest_ws_and_login_without_leaking_hashes"
+      ],
+      "fixtures": [
+        "two concurrent specialists synchronized by a barrier",
+        "confirmed disabled-worker failure returned to coordinator",
+        "durable cancellation retains unknown model reservation and cancels group",
+        "actual process exit after fixture effect, with group/root/operation retained and no repeated attempt",
+        "explicit negative durable proof preserved in parent tool result",
+        "existing 17-specialist consultation and narration/office contracts"
+      ]
+    },
+    "node_26_selected": {
+      "passed": 24,
+      "failed": 0,
+      "suites": [
+        "queue",
+        "verification",
+        "objective-durable"
+      ],
+      "note": "process isolation disabled"
+    },
+    "python_310_selected": {
+      "passed": 24,
+      "failed": 0,
+      "suites": [
+        "queue",
+        "verification",
+        "objective_durable"
+      ],
+      "excluded": "two older actual_process_exit cases; sandbox worker notifications require external event-loop heartbeat"
+    },
+    "cross_language_queue_recovery": "passed Node -> Python -> Node with one effect and one claim",
+    "cross_language_group_recovery": "passed Node -> Python -> Node with reconciliation/proof and one synthesis",
+    "typescript_consumer": "passed strict compilation",
+    "selected_ts_rust_comparison": {
+      "memory": "passed",
+      "skills": "passed",
+      "queue": "passed",
+      "delegation": "passed"
+    },
+    "live_models_real_accounts_or_messages": "not used",
+    "remote_ci": "explicit contract steps added; not run remotely",
+    "full_network_or_platform_matrix": "not certified"
+  },
+  "limits": [
+    "Gateway integration is local Rune/webchat text delegation; full multi-tenant/admin API parity is pending.",
+    "Four specialist jobs per turn, not a global limit across conversations; queues are scoped by tenant/objective.",
+    "Gateway fan-in advances the existing parent checkpoint; it does not also publish an independent synthesis job.",
+    "Individual task_delegate calls keep their order; task_delegate_group is the explicit parallel batch API.",
+    "Worker execution is text-only; tools are not installed by an agent catalog assignment.",
+    "Preparation failures are confirmed; provider exceptions and interrupted model dispatch remain uncertain.",
+    "Recovery must reconcile model permits, queue jobs and parent tool operations separately with old executors stopped.",
+    "Permanent session roots cannot be overridden; per-turn scope requires an otherwise unbound session and schema 6.",
+    "No automatic verifier or judge; unchecked by default; explicitly published proof evidence is preserved and failed checks prevent ok=true.",
+    "General bus, scheduler/admin, task revision, goal runner, remaining services/tools/channels and release matrix are incomplete.",
+    "Projects remain excluded; publication remains disabled and prior dependency notice release gates are unchanged."
+  ]
+}

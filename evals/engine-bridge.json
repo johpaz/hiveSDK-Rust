@@ -1,0 +1,69 @@
+{
+  "scope": "Local JSON bridge bytes, deterministic fixtures; no remote model calls or billing claims.",
+  "cases": [
+    {
+      "history_turns": 10,
+      "history_chars_per_message": 1024,
+      "tool_rounds": 3,
+      "max_context_bytes": null,
+      "legacy": {
+        "sent_bytes": 268790,
+        "received_bytes": 355626
+      },
+      "handle": {
+        "sent_bytes": 792,
+        "received_bytes": 88385
+      },
+      "history_getter_response_bytes": 21950,
+      "note": "Includes handle commit/abort. Context carried by model actions remains included; setup/history ingestion and explicit getter are excluded."
+    },
+    {
+      "history_turns": 100,
+      "history_chars_per_message": 1024,
+      "tool_rounds": 3,
+      "max_context_bytes": null,
+      "legacy": {
+        "sent_bytes": 2574591,
+        "received_bytes": 3430026
+      },
+      "handle": {
+        "sent_bytes": 792,
+        "received_bytes": 856985
+      },
+      "history_getter_response_bytes": 214100,
+      "note": "Includes handle commit/abort. Context carried by model actions remains included; setup/history ingestion and explicit getter are excluded."
+    },
+    {
+      "history_turns": 100,
+      "history_chars_per_message": 1024,
+      "tool_rounds": 12,
+      "max_context_bytes": null,
+      "legacy": {
+        "sent_bytes": 8403584,
+        "received_bytes": 11196029
+      },
+      "handle": {
+        "sent_bytes": 2672,
+        "received_bytes": 2794275
+      },
+      "history_getter_response_bytes": 215683,
+      "note": "Includes handle commit/abort. Context carried by model actions remains included; setup/history ingestion and explicit getter are excluded."
+    },
+    {
+      "history_turns": 100,
+      "history_chars_per_message": 8192,
+      "tool_rounds": 12,
+      "max_context_bytes": 65536,
+      "legacy": {
+        "sent_bytes": 43552625,
+        "received_bytes": 44205811
+      },
+      "handle": {
+        "sent_bytes": 2672,
+        "received_bytes": 662184
+      },
+      "history_getter_response_bytes": 1649283,
+      "note": "Includes handle commit/abort. Context carried by model actions remains included; setup/history ingestion and explicit getter are excluded."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# Handles durables y workers del ciclo
+
+Un handle por agente conservará configuración, revisión CAS, estado confirmado y el último RunFrame en Rust. Reutilizará SessionStore.load/begin_run_scoped/resume_run/claim/advance/reject/check/commit sin cambiar colecciones ni formatos. Los comandos no aceptarán estado, revisión ni identidad de sesión aportados de nuevo por el anfitrión; cada operación usa los valores del handle. IDs de ejecución seguirán obligatorios al confirmar respuestas.
+
+Se elige un handle propietario frente a devolver frames reducidos con snapshots de vuelta al comenzar/confirmar. Esa alternativa aún obliga a exportar historial y confía el checkpoint al wrapper. No se añade un registro global ni un formato nuevo. Se conservan CAS entre handles, presupuesto raíz transaccional, atribución de resúmenes y reconciliación explícita sin replay. Un fallo deja el checkpoint durable tal como quedó, a diferencia del abort de agentes en memoria.
+
+El ciclo usará workers: spawn_blocking en Node y to_thread en Python. No se invocarán callbacks hasta confirmar el claim. Cancelar una operación Python no abandona el worker: se espera su fin, incluso con cancelaciones repetidas, y después se informa cancelación. El store permanece ocupado hasta entonces. Un resultado escrito permanece recuperable aunque el anfitrión haya cancelado. Node también espera el Promise de la escritura antes de liberar la ejecución.
+
+El handle conservará una referencia al estado visible bajo un lock separado y breve; getters de historial/contexto no esperan el lock que realiza I/O. Actualizar el confirmado tras commit mantiene la conducta pública. Al abrir resume se muestra el checkpoint cargado, como antes. Cerrar el store invalida nuevos despachos del handle sin impedir leer su copia visible del historial, igual que el agente previo.
+
+La apertura del store/agente, context-plan setters, inspect/recover/resolve y operaciones públicas de Objective continúan síncronas en este paso. No se declarará todo el I/O asíncrono ni terminado el requisito de producción. Se medirá específicamente el puente y la ejecución del ciclo; migrar el resto de la API requiere contratos asíncronos explícitos.
+
+Pruebas: reapertura, bloqueo de operaciones inciertas, escritor obsoleto, fencing de execution ID, cierre del store, guards activos durante workers, cancelación/join, callbacks sin claim pendientes y paridad entre lenguajes. Regresión de objetivos/resúmenes/triggers y formatos actuales. Comparar bytes del puente y comprobar que el worker permite avanzar al event loop, sin afirmar ahorro de facturación remota.

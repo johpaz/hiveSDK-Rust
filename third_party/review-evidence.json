@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "cargo_lock_sha256": "022b6cfadf2faa7deb23c074f0adf719ba1e7c08c91ce353bb28aa9011afed0e",
+  "scope": "Research evidence only. Not license clearance or a change to package publication gates.",
+  "target_graphs": [
+    {
+      "platform": "linux-x64-gnu",
+      "target": "x86_64-unknown-linux-gnu",
+      "closure": "normal and build dependencies; dev excluded; metadata estimate, not linked binary attribution",
+      "packages": 272,
+      "pending_in_graph": [
+        "htmlescape@0.3.1",
+        "tiktoken-rs@0.12.1"
+      ]
+    },
+    {
+      "platform": "linux-x64-musl",
+      "target": "x86_64-unknown-linux-musl",
+      "closure": "normal and build dependencies; dev excluded; metadata estimate, not linked binary attribution",
+      "packages": 272,
+      "pending_in_graph": [
+        "htmlescape@0.3.1",
+        "tiktoken-rs@0.12.1"
+      ]
+    },
+    {
+      "platform": "linux-arm64-gnu",
+      "target": "aarch64-unknown-linux-gnu",
+      "closure": "normal and build dependencies; dev excluded; metadata estimate, not linked binary attribution",
+      "packages": 271,
+      "pending_in_graph": [
+        "htmlescape@0.3.1",
+        "tiktoken-rs@0.12.1"
+      ]
+    },
+    {
+      "platform": "darwin-x64",
+      "target": "x86_64-apple-darwin",
+      "closure": "normal and build dependencies; dev excluded; metadata estimate, not linked binary attribution",
+      "packages": 272,
+      "pending_in_graph": [
+        "htmlescape@0.3.1",
+        "tiktoken-rs@0.12.1"
+      ]
+    },
+    {
+      "platform": "darwin-arm64",
+      "target": "aarch64-apple-darwin",
+      "closure": "normal and build dependencies; dev excluded; metadata estimate, not linked binary attribution",
+      "packages": 271,
+      "pending_in_graph": [
+        "htmlescape@0.3.1",
+        "tiktoken-rs@0.12.1"
+      ]
+    },
+    {
+      "platform": "win32-x64-msvc",
+      "target": "x86_64-pc-windows-msvc",
+      "closure": "normal and build dependencies; dev excluded; metadata estimate, not linked binary attribution",
+      "packages": 270,
+      "pending_in_graph": [
+        "htmlescape@0.3.1",
+        "tiktoken-rs@0.12.1"
+      ]
+    }
+  ],
+  "htmlescape": {
+    "version": "0.3.1",
+    "upstream_commit": "446b5a912c86c81ec44e961e08b8d13c2732a409",
+    "repository": "https://github.com/veddan/rust-htmlescape",
+    "packaged_files": [
+      {
+        "path": ".gitignore",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": ".travis.yml",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "Cargo.toml",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "README.md",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "benches/bench.rs",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "moonstone-short.txt",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "src/decode.rs",
+        "matches_upstream_blob": false
+      },
+      {
+        "path": "src/encode.rs",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "src/entities.rs",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "src/io_support.rs",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "src/lib.rs",
+        "matches_upstream_blob": true
+      },
+      {
+        "path": "tests/test.rs",
+        "matches_upstream_blob": false
+      }
+    ],
+    "notice_files_in_tree": []
+  },
+  "tiktoken": {
+    "version": "0.12.1",
+    "wrapper_commit": "72a5a800651a1cea1ad609292446ba02c80e3bcd",
+    "vendor_gitlink_commit": "4e71bbe0c078468e00fefbf94b39849389f346e5",
+    "vendor_repository": "https://github.com/openai/tiktoken",
+    "download_script": "https://raw.githubusercontent.com/zurawiki/tiktoken-rs/72a5a800651a1cea1ad609292446ba02c80e3bcd/scripts/download_assets.sh",
+    "encoder_json": {
+      "url": "https://openaipublic.blob.core.windows.net/gpt-2/encodings/main/encoder.json",
+      "upstream_sha256": "196139668be63f3b5d6574427317ae82f612a97c5d1cdaf36ed2256dbf636783",
+      "packaged_sha256": "6401aa8aac4e480b02ed2713037078c26fab6fc9f1882012e746fe9bd87bc99b",
+      "json_value_equal": true
+    },
+    "code_notice": {
+      "sha256": "418cb499b436128d653d79941333a5437b7be2ea9213dcc2f04d15d5d2c51d86",
+      "included_in_inventory": true,
+      "chain": "upstream-sources.json via_submodule: pinned parent tree, gitmodules blob/repository, gitlink commit and packaged vendor source blob",
+      "remaining_review": "embedded tokenizer assets attribution"
+    }
+  }
+}

@@ -1,0 +1,156 @@
+name: Release
+
+# Publica @johpaz/hive-sdk-rust (npm) y johpaz-hive-sdk-rust (PyPI) a partir de
+# los artefactos que native.yml construyó y probó en las seis plataformas.
+# Nunca compila nada propio: si un binario no pasó la matriz, no se publica.
+#
+# Disparo normal:  git tag -a v0.1.0 -m "release v0.1.0" && git push origin v0.1.0
+# Ensayo:          Actions > Release > Run workflow (dry_run=true, por defecto)
+#
+# Requisitos únicos (ver docs/release-readiness.md):
+#   - Secret NPM_TOKEN (automation token con permiso sobre el scope @johpaz).
+#   - PyPI Trusted Publisher para este repo/workflow/environment `pypi`.
+#   - Environments `npm` y `pypi` en GitHub (agregar revisores requeridos).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Ensayo: valida y empaqueta sin publicar'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Compuertas previas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - name: Versiones coherentes con el tag
+        run: |
+          python - <<'PY'
+          import json, os, re, tomllib
+          tag = os.environ.get('GITHUB_REF_NAME', '')
+          want = tag[1:] if tag.startswith('v') else None
+          npm = json.load(open('packages/npm/package.json'))
+          py = tomllib.load(open('packages/python/pyproject.toml', 'rb'))['project']
+          cargo = tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version']
+          versions = {'npm': npm['version'], 'python': py['version'], 'cargo': cargo}
+          versions.update({k: v for k, v in npm['optionalDependencies'].items()})
+          bad = {k: v for k, v in versions.items() if v != cargo}
+          assert not bad, f'versiones desalineadas con Cargo {cargo}: {bad}'
+          if want: assert want == cargo, f'tag {tag} != versión {cargo}'
+          assert npm['name'] == '@johpaz/hive-sdk-rust', npm['name']
+          assert py['name'] == 'johpaz-hive-sdk-rust', py['name']
+          print('OK', cargo)
+          PY
+      - name: Avisos de terceros completos
+        # Compuerta legal: falla mientras third_party/inventory.json tenga pendientes.
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          cargo fetch --locked
+          python scripts/third-party-notices.py --check --require-complete
+      - name: Paquetes sin private:true
+        run: |
+          node -e "
+          const p = require('./packages/npm/package.json');
+          if (p.private) { console.error('packages/npm/package.json sigue con private:true'); process.exit(1); }"
+
+  build:
+    name: Construir y probar las seis plataformas
+    needs: gate
+    uses: ./.github/workflows/native.yml
+
+  publish-npm:
+    name: Publicar npm
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write   # provenance
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Publicar binarios por plataforma y luego la fachada
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          ls -l artifacts/npm
+          flags="--access public --provenance"
+          [ "$DRY_RUN" = "true" ] && flags="$flags --dry-run"
+          # Los paquetes de plataforma primero: la fachada los declara como optionalDependencies.
+          for tgz in artifacts/npm/johpaz-hive-sdk-rust-*-*.tgz; do
+            npm publish "$tgz" $flags
+          done
+          npm publish artifacts/npm/johpaz-hive-sdk-rust-[0-9]*.tgz $flags
+
+  publish-pypi:
+    name: Publicar PyPI
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write   # Trusted Publishing, sin token guardado
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: artifacts
+          merge-multiple: true
+      - name: Wheels a publicar
+        run: ls -l artifacts/wheels
+      - name: Publicar en PyPI
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: artifacts/wheels
+          attestations: true
+
+  github-release:
+    name: Release en GitHub
+    needs: [publish-npm, publish-pypi]
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: artifacts
+          merge-multiple: true
+      - name: Crear release con los artefactos
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag \
+            artifacts/npm/*.tgz artifacts/wheels/*.whl

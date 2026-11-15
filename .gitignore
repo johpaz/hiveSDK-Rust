@@ -1,0 +1,60 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Artefactos de build y empaquetado (se regeneran en CI)
+dist/
+*.node
+*.so
+*.dylib
+*.dll
+*.pyd
+*.whl
+*.tgz
+*.egg-info/
+build/
+packages/npm/native/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+.npmrc
+
+# Secretos y entorno local — nunca al repositorio
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Datos locales (HiveDB, caches de prueba)
+*.db
+*.sqlite
+*.sqlite3
+*.hivedb
+.hive/
+
+# Logs y temporales
+*.log
+*.tmp
+tmp/
+
+# Editores y SO
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Herramientas de agentes locales
+.claude/
+.codex/

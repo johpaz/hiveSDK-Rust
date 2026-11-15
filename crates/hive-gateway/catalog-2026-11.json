@@ -1,0 +1,1097 @@
+{
+  "reviewed_at": "2026-11-13",
+  "requested_since": "2026-08-01",
+  "scope": "Current official model offerings, including baseline multimodal entries needed by Providers. Review date is not a claimed release date. Catalog registration does not implement every provider-specific media transport.",
+  "providers": [
+    {
+      "id": "gemini",
+      "source_url": "https://aistudio.google.com/docs/models",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "gemini-4-carbon",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "gemini-4-argon",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "gemini-4-hydrogen",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "gemini-3.8-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.6-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.5-flash-lite",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.1-flash-lite",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.8-live",
+          "model_type": "realtime",
+          "capabilities": [
+            "realtime",
+            "audio_in",
+            "audio_out",
+            "transcription",
+            "function_calling"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.8-live-extended-thinking",
+          "model_type": "realtime",
+          "capabilities": [
+            "realtime",
+            "audio_in",
+            "audio_out",
+            "transcription",
+            "function_calling"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.8-flash-tts",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.8-flash-lite-tts",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.5-transcribe",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ]
+        },
+        {
+          "wire_id": "gemini-nano-banana-2.1",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.1-flash-image",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        },
+        {
+          "wire_id": "gemini-3.1-flash-lite-image",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        },
+        {
+          "wire_id": "gemini-3-pro-image",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "source_url": "https://developers.openai.com/api/docs/models",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "gpt-6-astra",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1050000
+        },
+        {
+          "wire_id": "gpt-6.1-sol",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1050000
+        },
+        {
+          "wire_id": "gpt-6.1-terra",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1050000
+        },
+        {
+          "wire_id": "gpt-6-luna",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1050000
+        },
+        {
+          "wire_id": "gpt-image-2.6-sunburst",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        },
+        {
+          "wire_id": "gpt-image-2.6-flare",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        },
+        {
+          "wire_id": "gpt-live-1",
+          "model_type": "realtime",
+          "capabilities": [
+            "realtime",
+            "audio_in",
+            "audio_out"
+          ]
+        },
+        {
+          "wire_id": "gpt-realtime-2.1",
+          "model_type": "realtime",
+          "capabilities": [
+            "realtime",
+            "audio_in",
+            "audio_out"
+          ]
+        },
+        {
+          "wire_id": "gpt-transcribe",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ]
+        },
+        {
+          "wire_id": "gpt-live-transcribe",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription",
+            "realtime"
+          ]
+        },
+        {
+          "wire_id": "gpt-realtime-whisper",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription",
+            "realtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "source_url": "https://platform.claude.com/docs/en/models/overview",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "claude-fable-5-2",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "claude-opus-5-5",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "claude-sonnet-5-5",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "claude-haiku-5-5",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        }
+      ]
+    },
+    {
+      "id": "mistral",
+      "source_url": "https://docs.mistral.ai/models",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "mistral-large-4",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "mistral-ocr-4-1",
+          "model_type": "vision",
+          "capabilities": [
+            "ocr"
+          ]
+        },
+        {
+          "wire_id": "voxtral-mini-tts-3-0",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "source_url": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "deepseek-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1048576
+        },
+        {
+          "wire_id": "deepseek-v4-pro",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1048576
+        }
+      ]
+    },
+    {
+      "id": "kimi",
+      "source_url": "https://platform.kimi.ai/docs/models",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "kimi-k3.1-pro",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "kimi-k3.1-pro-highspeed",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "kimi-k3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        }
+      ]
+    },
+    {
+      "id": "qwen",
+      "source_url": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models",
+      "reviewed_at": "2026-11-13",
+      "note": "Availability depends on deployment region and account. No endpoint is changed.",
+      "models": [
+        {
+          "wire_id": "qwen3.8-max",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "qwen3.8-max-0902",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "qwen3.8-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "qwen3.7-plus",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "qwen3.7-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "qwen4-max-preview",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "availability_note": "Solo Token Plan y endpoint dedicado · preview hasta 25/11/2026; sin acceso por consumo",
+          "source_url": "https://www.alibabacloud.com/help/en/model-studio/qwen4-max-preview",
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "qwen3.8-omni-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "audio_in",
+            "function_calling"
+          ],
+          "availability_note": "Disponibilidad según región, endpoint y permisos de la cuenta"
+        },
+        {
+          "wire_id": "qwen-audio-3.1-tts-flash",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ],
+          "availability_note": "Disponibilidad según región, endpoint y permisos de la cuenta"
+        },
+        {
+          "wire_id": "qwen-audio-3.1-asr-flash",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ],
+          "availability_note": "Disponibilidad según región, endpoint y permisos de la cuenta"
+        },
+        {
+          "wire_id": "qwen-audio-3.1-asr-flash-filetrans",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ],
+          "availability_note": "Disponibilidad según región, endpoint y permisos de la cuenta"
+        },
+        {
+          "wire_id": "qwen-audio-3.1-asr-flash-streaming",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription",
+            "realtime"
+          ],
+          "availability_note": "Disponibilidad según región, endpoint y permisos de la cuenta"
+        },
+        {
+          "wire_id": "qwen-audio-3.1-realtime-flash",
+          "model_type": "realtime",
+          "capabilities": [
+            "realtime",
+            "audio_in",
+            "audio_out",
+            "function_calling"
+          ],
+          "availability_note": "Disponibilidad según región, endpoint y permisos de la cuenta"
+        }
+      ]
+    },
+    {
+      "id": "z-ai",
+      "source_url": "https://docs.z.ai/guides/overview/overview",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "glm-5.3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "glm-5.3-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "glm-5.3-flashx",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "glm-5.3-flashx-legal",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        }
+      ]
+    },
+    {
+      "id": "minimax",
+      "source_url": "https://platform.minimax.io/docs/guides/models-intro",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "MiniMax-M3.1-Flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "MiniMax-M3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "speech-2.8-hd",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "speech-2.8-turbo",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "MiniMax-H3-Image",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        },
+        {
+          "wire_id": "MiniMax-H3-Image-Highspeed",
+          "model_type": "image",
+          "capabilities": [
+            "image_generation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "groq",
+      "source_url": "https://console.groq.com/docs/models",
+      "reviewed_at": "2026-11-13",
+      "note": "Qwen and Orpheus are preview offerings; enterprise offerings require account access.",
+      "models": [
+        {
+          "wire_id": "qwen/qwen3.8-27b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "context_window": 131072
+        },
+        {
+          "wire_id": "whisper-large-v3",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ]
+        },
+        {
+          "wire_id": "whisper-large-v3-turbo",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ]
+        },
+        {
+          "wire_id": "canopylabs/orpheus-v1-english",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "canopylabs/orpheus-arabic-saudi",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "elevenlabs",
+      "source_url": "https://elevenlabs.io/docs/overview/models",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "eleven_v4",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "eleven_v4_turbo",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "eleven_v3",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "eleven_v3_conversational",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech"
+          ]
+        },
+        {
+          "wire_id": "scribe_v3",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription"
+          ]
+        },
+        {
+          "wire_id": "scribe_v3_live",
+          "model_type": "stt",
+          "capabilities": [
+            "transcription",
+            "realtime"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nvidia",
+      "source_url": "https://docs.api.nvidia.com/nim/reference/llm-apis",
+      "reviewed_at": "2026-11-13",
+      "note": "",
+      "models": [
+        {
+          "wire_id": "moonshotai/kimi-k3.1-pro",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "source_url": "https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k3_1-pro",
+          "context_window": 1048576
+        },
+        {
+          "wire_id": "z-ai/glm-5.3-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "z-ai/glm-5.3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "opencode-go",
+      "source_url": "https://opencode.ai/docs/console/go/",
+      "reviewed_at": "2026-11-13",
+      "note": "Current documentation uses inference/go endpoints. Existing profile endpoint is preserved; verify before activating.",
+      "models": [
+        {
+          "wire_id": "glm-5.3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "deepseek-v4-pro",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "glm-5.3-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "kimi-k3.1-pro",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "kimi-k3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "deepseek-v4.1-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "minimax-m3.1-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "minimax-m3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "qwen3.8-max",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        },
+        {
+          "wire_id": "qwen3.8-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "modelscope",
+      "source_url": "https://modelscope.ai/models/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "reviewed_at": "2026-11-13",
+      "note": "Only the model card with an explicit international API example was imported; repository availability alone does not imply API hosting.",
+      "models": [
+        {
+          "wire_id": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "source_url": "https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties",
+      "reviewed_at": "2026-11-13",
+      "note": "Use the authenticated catalog sync to import the account-visible /models catalog and its declared modalities.",
+      "models": [
+        {
+          "wire_id": "anthropic/claude-opus-5.5",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "json_mode",
+            "streaming"
+          ],
+          "source_url": "https://openrouter.ai/anthropic/claude-opus-5.5"
+        },
+        {
+          "wire_id": "google/gemini-4-carbon",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "streaming"
+          ],
+          "source_url": "https://openrouter.ai/google/gemini-4-carbon",
+          "catalog_listed_at": "2026-11-10"
+        },
+        {
+          "wire_id": "openai/gpt-6-astra",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "streaming"
+          ],
+          "source_url": "https://openrouter.ai/openai/gpt-6-astra",
+          "catalog_listed_at": "2026-09-04"
+        },
+        {
+          "wire_id": "moonshotai/kimi-k3.1-pro",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "streaming"
+          ],
+          "source_url": "https://openrouter.ai/moonshotai/kimi-k3.1-pro",
+          "catalog_listed_at": "2026-10-23"
+        },
+        {
+          "wire_id": "z-ai/glm-5.3-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling",
+            "streaming"
+          ],
+          "source_url": "https://openrouter.ai/z-ai/glm-5.3-flash",
+          "catalog_listed_at": "2026-08-26"
+        }
+      ]
+    },
+    {
+      "id": "ollama",
+      "source_url": "https://docs.ollama.com/api/tags",
+      "reviewed_at": "2026-11-13",
+      "note": "Local installed models come from /api/tags. No weights are installed or guessed.",
+      "models": []
+    },
+    {
+      "id": "piper",
+      "source_url": "https://github.com/rhasspy/piper/releases/tag/2023.11.14-2",
+      "reviewed_at": "2026-11-13",
+      "note": "Original Hive native binary contract retained. Upstream development moved to OHF-Voice/piper1-gpl; no Python dependency introduced.",
+      "models": [
+        {
+          "wire_id": "es_MX-claude-14947-epoch-high",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech",
+            "local"
+          ]
+        },
+        {
+          "wire_id": "es_MX-cortana-19669-epoch-high",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech",
+            "local"
+          ]
+        },
+        {
+          "wire_id": "es_MX-gevy-10196-epoch-high",
+          "model_type": "tts",
+          "capabilities": [
+            "tts",
+            "speech",
+            "local"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hiveagents",
+      "source_url": "https://llm.hiveagents.io/v1/models",
+      "reviewed_at": "2026-11-13",
+      "note": "Public catalog could not be verified. Use authenticated sync against the configured endpoint; no model IDs invented.",
+      "models": []
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+* text=auto eol=lf
+# Keep hashed upstream notice bytes intact, including their original line endings.
+third_party/notices/** -text
+third_party/upstream/** -text
+THIRD_PARTY_NOTICES.txt -text
+*.node binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.whl binary
+*.tgz binary

@@ -1,0 +1,130 @@
+name: SDK regression
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: regression-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  msrv:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - run: rustup toolchain install 1.95.0 --profile minimal
+      - run: cargo +1.95.0 check --workspace --all-targets --jobs 2 --locked
+      - run: cargo +1.95.0 test -p hive-agent-core --test durable_handles --test structured_output --jobs 2 --locked
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: '24'
+            python: '3.10'
+          - node: '26'
+            python: '3.15'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Rust toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal --component clippy,rustfmt
+      - run: rustup default 1.100.0
+      - name: Verify pinned third-party notice inventory
+        run: |
+          cargo fetch --locked
+          python scripts/third-party-notices.py --check
+          python -m unittest discover -s tests -p test_third_party_notices.py -q
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Per-turn objective and gateway delegation contracts
+        run: |
+          cargo test -p hive-agent-core --test turn_objectives --locked
+          cargo test -p hive-gateway-rust durable_group --locked
+          cargo test -p hive-gateway-rust durable_gateway_crash --locked
+      - name: Optional embedded services and native browser contracts
+        run: cargo test -p hive-agent-core --all-features --test services --test browser --locked
+      - name: Native durable queue, worker and scheduler contracts
+        run: cargo test -p hive-agent-core --features scheduler --lib harness --locked
+      - run: python scripts/build-dev.py
+      - run: node --test packages/npm/test/*.test.mjs
+      - name: Python regression
+        env:
+          PYTHONPATH: packages/python/python
+        run: python -m unittest discover -s packages/python/tests -q
+      - name: Cross-language checkpoints
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/session-parity.py
+      - name: Cross-language objective budget
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/objective-parity.py
+      - name: Cross-language context memory
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/memory-parity.py
+      - name: Cross-language summary attribution
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/summary-parity.py
+      - name: Cross-language structured output
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/structured-output-parity.py
+      - name: Cross-language async storage
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/async-storage-parity.py
+      - name: Cross-language embedded catalog
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/services-parity.py
+      - name: Cross-language queue crash recovery
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/queue-parity.py
+      - name: Cross-language specialist group recovery and proofs
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/delegation-parity.py
+      - name: Cross-language scheduler occurrence recovery
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/scheduler-parity.py
+      - name: Verifier contract evaluation without live models
+        run: node scripts/evaluate-verifiers.mjs
+      - name: Context contract evaluation without live models
+        run: node scripts/evaluate-context.mjs
+      - name: Engine bridge measurement without live models
+        run: node scripts/measure-engine-bridge.mjs
+      - name: Durable bridge measurement without live models
+        run: node scripts/measure-durable-bridge.mjs
+      - name: Node objective runtime workload without live models
+        run: node scripts/measure-objective-runtime.mjs
+      - name: Python objective runtime workload without live models
+        env:
+          PYTHONPATH: packages/python/python
+        run: python scripts/measure-objective-runtime.py
+      - name: TypeScript contract
+        run: npx --yes --package typescript@5.9.3 tsc --strict --noEmit --lib ES2023,DOM packages/npm/index.d.ts

@@ -1,0 +1,39 @@
+[package]
+name = "hive-agent-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Portable Rust agent engine for Hive SDK"
+
+[features]
+default = []
+harness = []
+scheduler = ["harness", "dep:chrono", "dep:chrono-tz"]
+services = ["dep:serde_yaml", "dep:zeroize"]
+browser = ["dep:tokio-tungstenite", "dep:futures-util"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+hivedb-core = { git = "https://github.com/johpaz/hive-db.git", rev = "10fcd921d79872db881914f2e3f45bb3c20ed917" }
+uuid = { version = "1", features = ["v4"] }
+jsonschema = { version = "0.58", default-features = false, features = ["idna"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "process", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tiktoken-rs = { version = "=0.12.1", default-features = false }
+ring = "0.17"
+serde_yaml = { version = "0.9.34", optional = true }
+tokio-tungstenite = { version = "0.24", optional = true, features = ["rustls-tls-native-roots"] }
+futures-util = { version = "0.3", optional = true, features = ["sink"] }
+
+chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
+chrono-tz = { version = "0.9", optional = true }
+
+zeroize = { version = "1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["net", "io-util"] }

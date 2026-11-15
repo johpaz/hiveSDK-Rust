@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "built_on": "2026-11-10",
+  "version": "0.1.0",
+  "node_minimum": 24,
+  "python_minimum": "3.10",
+  "platform": "linux-x64-musl",
+  "baseline": "musllinux_1_2",
+  "published": false,
+  "private_preview": true,
+  "builder": {
+    "image": "quay.io/pypa/musllinux_1_2_x86_64@sha256:cf82db9d8dc8c5c2cb27f422208baf266ebc8ad70be4ab1bc79bcc8807a6432d",
+    "rust": "1.99.1",
+    "rust_host": "x86_64-unknown-linux-musl",
+    "maturin": "1.16.0",
+    "rustflags": "-C target-feature=-crt-static",
+    "source_manifest": "evals/distribution-linux-x64-musl-sources.json",
+    "source_manifest_sha256": "b2b9ca205ad66203988fc586e83380ae0de572ffd93db2d1dffbca989ea0f971",
+    "source_archive_sha256": "0f6039e5defb4fdcee1ddb3607562cbe67d3614d52776949516a8852afbe7162",
+    "source_files_verified_in_container": 387,
+    "extra_rust_sources": []
+  },
+  "artifacts": [
+    {
+      "path": "dist/npm/johpaz-hive-sdk-rust-0.1.0.tgz",
+      "sha256": "8d66a9877f2e169d33cd60cc647cdb40bff23649994835870e99e1d665f7e40a",
+      "bytes": 168886
+    },
+    {
+      "path": "dist/npm/johpaz-hive-sdk-rust-linux-x64-musl-0.1.0.tgz",
+      "sha256": "a005ac0ff2cdfc47db1453bec8b1da67f972e53efe74aa15ea60d4b68dbc5615",
+      "bytes": 10771455
+    },
+    {
+      "path": "dist/wheels/johpaz_hive_sdk_rust-0.1.0-cp310-abi3-musllinux_1_2_x86_64.whl",
+      "sha256": "e3dd2042db7385a81a8f0c07ae691b3d4210d487abf02bfbd23f132df5f8f2af",
+      "bytes": 10995337
+    }
+  ],
+  "audit": {
+    "elf_architecture": "x86_64",
+    "musl_needed_verified": true,
+    "glibc_symbol_versions_absent": true,
+    "needed_libraries": {
+      "hive_sdk/_native.abi3.so": [
+        "libgcc_s-0cd532bd.so.1",
+        "libc.musl-x86_64.so.1"
+      ],
+      "johpaz_hive_sdk_rust.libs/libgcc_s-0cd532bd.so.1": [
+        "libc.musl-x86_64.so.1"
+      ],
+      "npm/hive.node": [
+        "libgcc_s.so.1",
+        "libc.musl-x86_64.so.1"
+      ]
+    },
+    "bundled_libraries": [
+      {
+        "wheel_path": "johpaz_hive_sdk_rust.libs/libgcc_s-0cd532bd.so.1",
+        "sha256": "42b5f2c8ca13e5e173d837f5117a04b6c042437548112bde7879251ae8dcff8f"
+      }
+    ],
+    "cargo_notices_verified": true,
+    "current_python_modules_verified": true,
+    "private_npm_previews": true
+  },
+  "third_party_notices": {
+    "cargo_status": "incomplete",
+    "cargo_pending_packages": 5,
+    "cargo_documents": 225,
+    "additional_bundled_runtime_reviews": 1,
+    "runtime_review": "third_party/runtime-review.json",
+    "runtime_review_sha256": "cbefde6466d403fff66bd3595a05fcb8bbdd3e4e04105a26f54788a94e82e832"
+  },
+  "installed_consumers": [
+    {
+      "runtime": "Node",
+      "version": "24.22.2",
+      "environment": "fresh Alpine 3.24.4 container",
+      "image_id": "e01e5017b0626d55cba2c8958213824928fae489499a7b421c00d98f2dd8bc36",
+      "passed": true
+    },
+    {
+      "runtime": "Node",
+      "version": "26.13.0",
+      "environment": "fresh Alpine 3.24.4 container",
+      "image_id": "02a728b94c55ca63ed829ab3194fab42ea4633551821a62f230a1818577c435e",
+      "passed": true
+    },
+    {
+      "runtime": "Python",
+      "version": "3.10.22",
+      "environment": "fresh musllinux container, Alpine 3.22.8, clean venv",
+      "passed": true
+    },
+    {
+      "runtime": "Python",
+      "version": "3.15.2",
+      "environment": "fresh musllinux container, Alpine 3.22.8, clean venv",
+      "passed": true
+    }
+  ],
+  "smoke": {
+    "factories": "async SessionStore/Agent/Objective",
+    "durable_root": {
+      "model_calls": 2,
+      "tool_calls": 1,
+      "input_tokens": 2,
+      "output_tokens": 2
+    },
+    "checks": [
+      "host tools",
+      "durable history reopen",
+      "durable objective accounting",
+      "process-local objective accounting"
+    ],
+    "providers": "local deterministic callbacks; no paid calls",
+    "consumer_path": "Node installation or venv bin only; no Rust/Bun in consumer PATH",
+    "fixtures": [
+      {
+        "path": "scripts/test-npm-install.mjs",
+        "sha256": "0ebdcd39623c8bb84d6830d28e3f9bf59033141670668b1c445b6ecc3427ba2b"
+      },
+      {
+        "path": "scripts/test-python-install.py",
+        "sha256": "60c09b30010f74dba42e78d81c10160597877680b90c87b1a1fd57960d123f80"
+      },
+      {
+        "path": "tests/installed-smoke.mjs",
+        "sha256": "142bfcf1f1b5416df60e17165548fbf82a8edc40b5cb3342af85977c19eced99"
+      },
+      {
+        "path": "tests/installed-smoke.py",
+        "sha256": "5c3965933aabdaa832065d7ff8b9f029a7ad85dc35c5c75d8480f11b22a97918"
+      }
+    ]
+  },
+  "limits": [
+    "Installed functional smoke checks, not the full portable regression suite",
+    "No publication or registry resolution test",
+    "Four remaining target platforms not validated by this run",
+    "Five Cargo notice reviews plus one bundled runtime library review remain open"
+  ]
+}

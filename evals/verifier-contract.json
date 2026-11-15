@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "evaluation_id": "deterministic-verifier-contract-v1",
+  "live_models": false,
+  "usage_source": "deterministic fixture reports; not billed vendor tokens",
+  "scope": "Budget/callback contracts and known fixture facts; not production model quality or savings",
+  "results": [
+    {
+      "fixture": "correct",
+      "mode": "programmatic",
+      "expected_passed": true,
+      "passed": true,
+      "matches_expected": true,
+      "model_calls": 1,
+      "input_tokens": 12,
+      "output_tokens": 8
+    },
+    {
+      "fixture": "correct",
+      "mode": "fixture-model-review",
+      "expected_passed": true,
+      "passed": true,
+      "matches_expected": true,
+      "model_calls": 2,
+      "input_tokens": 44,
+      "output_tokens": 24
+    },
+    {
+      "fixture": "wrong-sum",
+      "mode": "programmatic",
+      "expected_passed": false,
+      "passed": false,
+      "matches_expected": true,
+      "model_calls": 1,
+      "input_tokens": 12,
+      "output_tokens": 8
+    },
+    {
+      "fixture": "wrong-sum",
+      "mode": "fixture-model-review",
+      "expected_passed": false,
+      "passed": true,
+      "matches_expected": false,
+      "model_calls": 2,
+      "input_tokens": 44,
+      "output_tokens": 24
+    },
+    {
+      "fixture": "missing",
+      "mode": "programmatic",
+      "expected_passed": false,
+      "passed": false,
+      "matches_expected": true,
+      "model_calls": 1,
+      "input_tokens": 12,
+      "output_tokens": 8
+    },
+    {
+      "fixture": "missing",
+      "mode": "fixture-model-review",
+      "expected_passed": false,
+      "passed": true,
+      "matches_expected": false,
+      "model_calls": 2,
+      "input_tokens": 44,
+      "output_tokens": 24
+    }
+  ],
+  "summary": {
+    "programmatic": {
+      "cases": 3,
+      "matches_expected": 3,
+      "model_calls": 3,
+      "input_tokens": 36,
+      "output_tokens": 24
+    },
+    "fixture-model-review": {
+      "cases": 3,
+      "matches_expected": 1,
+      "model_calls": 6,
+      "input_tokens": 132,
+      "output_tokens": 72
+    }
+  },
+  "production_model_review_justified": false
+}

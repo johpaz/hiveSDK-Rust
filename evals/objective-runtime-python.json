@@ -1,0 +1,52 @@
+{
+  "runtime": "3.10.22",
+  "scope": "Observed local event-loop lag with actual HiveDB and concurrent SDK control; synthetic callbacks/usage, no remote models. Not a production latency bound or billing estimate. Timings vary by machine/load.",
+  "cases": [
+    {
+      "concurrency": 1,
+      "history_turns_per_agent": 4,
+      "history_chars_per_message": 1024,
+      "tasks_per_agent": 4,
+      "context_max_bytes": 16384,
+      "interval_ms": 10,
+      "elapsed_ms": 390.2516669986653,
+      "samples": 36,
+      "observed_lag_ms": {
+        "p50": 0.5201449987362139,
+        "p95": 1.6445670028042514,
+        "max": 1.9945680016826373
+      },
+      "warmup_model_calls": 4,
+      "measured_synthetic_usage": {
+        "model_calls": 8,
+        "tool_calls": 9,
+        "input_tokens": 24,
+        "output_tokens": 16
+      },
+      "total_model_calls": 12
+    },
+    {
+      "concurrency": 4,
+      "history_turns_per_agent": 4,
+      "history_chars_per_message": 4096,
+      "tasks_per_agent": 4,
+      "context_max_bytes": 16384,
+      "interval_ms": 10,
+      "elapsed_ms": 5473.1236820007325,
+      "samples": 524,
+      "observed_lag_ms": {
+        "p50": 0.1924349983164575,
+        "p95": 1.249291001149686,
+        "max": 2.1520719985710457
+      },
+      "warmup_model_calls": 16,
+      "measured_synthetic_usage": {
+        "model_calls": 32,
+        "tool_calls": 36,
+        "input_tokens": 96,
+        "output_tokens": 64
+      },
+      "total_model_calls": 48
+    }
+  ]
+}

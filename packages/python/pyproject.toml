@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[project]
+name = "johpaz-hive-sdk-rust"
+version = "0.1.0"
+description = "Hive agent SDK powered by Rust (development preview)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_INVENTORY.json"]
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3", "Typing :: Typed"]
+
+[tool.maturin]
+module-name = "hive_sdk._native"
+python-source = "python"
+manifest-path = "../../crates/hive-python/Cargo.toml"

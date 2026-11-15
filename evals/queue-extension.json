@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "complete_plan": false,
+  "component": "durable queue, native worker pool and callback bindings",
+  "reference": "docs/parity/ts-reference.json",
+  "contract": "docs/durable-queue.md",
+  "source_sha256": {
+    "Cargo.lock": "25038fb197938ae943a8569663bb0fb0be250bc87be05d87d926a70da4f1d91a",
+    "crates/hive-core/Cargo.toml": "2c999526f4e1a02e679b6c072a49272e9748bb767f14bd23acb3dfda7e6b26f4",
+    "crates/hive-core/src/lib.rs": "9a9cfe50e2860fa88b442213081a27aceaf871474f8ac83d32c3634080f01fc7",
+    "crates/hive-core/src/sessions.rs": "d17e5aa69cf42bbdfa39e78d563a4e219717ec73921e2ee17c1d6678d2d5e25b",
+    "crates/hive-core/src/harness.rs": "411dd00b8817679fdb1be67b9f559b9d048728b8583ba449837ee62a7121daf9",
+    "crates/hive-core/src/harness/worker.rs": "bcf433d16d1305401d1e522ecac8404d77b49ce903850c4dc719e0c0670a180a",
+    "crates/hive-core/src/harness/tests.rs": "bd026105df3962cf6f0e3b404ad894f75ef5ced518a9be150d78502ac31f5248",
+    "crates/hive-napi/Cargo.toml": "0088063e6e13a8ad9c09e1eeccb110cf6f22b14b44c415026857d317c5bca926",
+    "crates/hive-python/Cargo.toml": "457f6e02f1ecceab010755f854333390898cdf53814a3affd4db14af1b5d2644",
+    "packages/npm/index.mjs": "c4b9414e2ac91b2d4b3f095a3dbf175781d7a1da187856f90536e0afbbc5fe49",
+    "packages/npm/index.d.ts": "dfdb61f211b37e26baafff7d6dc2930576d0c6d3e4b5c17e587b914eff03dbd7",
+    "packages/npm/queue.mjs": "3a421eadb736822cfbc52da5722922571b846a13bd41de3775cf5747b1829a34",
+    "packages/npm/package.json": "1a792998a5b647d559b2d4463740ab2be2742f0e3a7e6fad77364431c4f054e9",
+    "packages/python/python/hive_sdk/queue.py": "c47119c22b74abf795001f974b15c1ad96f25b84f4c6be777a94a109a787a147",
+    "packages/python/python/hive_sdk/agent.py": "572ef1196bc09758f4d6b7589426ef45111453425340d5ba52d8d3c6cd51e2cc",
+    "packages/python/python/hive_sdk/__init__.py": "5cd61428fd53acb707e2f033944c8a22ac584ffe01cd531d99053bdce8f70890",
+    "tests/queue-parity.py": "22aa9e630aabfc62e71cf4a2a310cec95ae3cc9f15baf39ee8f62f26589f00b6",
+    "tests/types/queue-consumer.ts": "6fb28bbcd6f80f4095ebf7edf2f771c9ca0ce9222d02cc69de8854164db2481b"
+  },
+  "checks": {
+    "workspace_build": "passed; development npm/Python bindings rebuilt",
+    "format": "passed",
+    "clippy_all_targets_all_features": "passed with -D warnings",
+    "typescript_consumer": "passed strict compilation of queued Agent -> JobOutcome composition",
+    "rust_harness_unit": {
+      "passed": 18,
+      "failed": 0
+    },
+    "rust_lib_with_harness": {
+      "passed": 27,
+      "failed": 0
+    },
+    "node_26_regression": {
+      "passed": 11,
+      "failed": 0,
+      "includes": "queue, embedded services and MCP catalog",
+      "note": "test isolation disabled in this sandbox"
+    },
+    "node_24_queue": {
+      "passed": 5,
+      "failed": 0
+    },
+    "python_310_queue": {
+      "passed": 6,
+      "failed": 0
+    },
+    "python_315_queue": {
+      "passed": 6,
+      "failed": 0
+    },
+    "python_310_regression": "10 tests passed before adding the synchronous callback case; six queue tests passed afterwards",
+    "python_test_environment": "external event-loop heartbeat used for sandbox worker notification limitations",
+    "node_python_node_queue_recovery": "passed; Node exits before finish, Python reconciles, Node verifies one fixture effect and one root attempt",
+    "node_python_node_catalog": "passed",
+    "ts_rust_comparison": {
+      "memory": "passed selected outcomes",
+      "skills": "passed selected valid YAML workflow metadata",
+      "queue": "passed dedup/claim/attempt/final-result/pending-cancel outcomes"
+    },
+    "live_models_or_real_account_effects": "not executed",
+    "full_network_regression_and_platform_matrix": "not repeated or certified; prior sandbox restrictions remain",
+    "remote_ci": "workflow steps added, not executed remotely"
+  },
+  "limits": [
+    "single HiveDB owner process; shared handles for concurrent pools",
+    "reconciliation requires stopping old executors and checking external effects",
+    "safe retry permits duplicate execution; execution fences do not roll back external effects",
+    "retained job limit and coordinator rewrite cost are explicit; archive/purge and throughput benchmarks pending",
+    "specialist fan-in, proof packets, scheduler and gateway integration remain pending"
+  ]
+}

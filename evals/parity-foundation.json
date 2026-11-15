@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "complete_plan": false,
+  "ts_reference": "docs/parity/ts-reference.json",
+  "capabilities": "docs/parity/capabilities.json",
+  "source_sha256": {
+    "Cargo.lock": "25038fb197938ae943a8569663bb0fb0be250bc87be05d87d926a70da4f1d91a",
+    "crates/hive-core/src/services.rs": "debcde773d2d86c1d7b3d67b4f24a1025ea0af10291b29091ec7f7c455f031e1",
+    "crates/hive-core/src/services/skills.rs": "c66f89bd8adea2640155a98953f7b203a35fb23b95571911e631c6a433be883c",
+    "crates/hive-core/src/services/tools.rs": "0cae4a4eb17af8cd9e382f4c28388f1d35f9c2c6144ca98c1e029d5a95488357",
+    "crates/hive-core/src/browser.rs": "cd80402071ca193d9170c7de85322cff589ba9b9fb499625d6d664ce2042495f",
+    "crates/hive-core/src/mcp.rs": "0a55506e0f3bbb76d99e52e09d04a91d2bdb3455a857b014d30f2c68b5ead6d7",
+    "packages/npm/index.mjs": "c0b9cea2e6155d63874c85454ebd38a4654a25afc0834f2310ff2ac178dae9ce",
+    "packages/npm/services.mjs": "2cdd4393b7bba2f5c350d67abc4e0229dd6ff713407e4fb616f498b5acc90682",
+    "packages/npm/index.d.ts": "e0eda07ec529383f8ab375062305127b77a001aaa4bd533b910b2707c1caada5",
+    "packages/python/python/hive_sdk/services.py": "f926e0014d7e85940eb275dc802772cac1dbf37f41a4742e18b28a4132156ddd",
+    "packages/python/python/hive_sdk/browser.py": "505e7a926764482263c1318fbaf6ac2322d6d73b330bd555836316e8bbf057b9",
+    "packages/python/python/hive_sdk/mcp.py": "58b44cac8a3a7281c7a19ef7125a8f3898f00d2f28ff46c172ff6eaedad0a346"
+  },
+  "checks": {
+    "workspace_build": "passed; development bindings rebuilt",
+    "format": "passed",
+    "clippy_all_targets_all_features": "passed with -D warnings",
+    "typescript_declarations": "passed --strict",
+    "rust_services": {
+      "passed": 7,
+      "failed": 0
+    },
+    "rust_mcp_stdio": {
+      "passed": 11,
+      "failed": 0
+    },
+    "rust_skill_parser": {
+      "passed": 2,
+      "failed": 0
+    },
+    "node_new_tests": {
+      "passed": 6,
+      "failed": 0,
+      "runtimes": [
+        "24.15.0",
+        "26.13.0"
+      ],
+      "note": "--test-isolation=none; final rebuilt binding rechecked on Node 26"
+    },
+    "python_new_tests": {
+      "passed": 5,
+      "failed": 0,
+      "runtime": "3.10",
+      "note": "external event-loop heartbeat used in this sandbox"
+    },
+    "catalog_node_python_node": "passed",
+    "ts_rust_differential": {
+      "memory": "passed selected CRUD/upsert/isolation/search/delete/recreate outcomes",
+      "skills": "passed valid YAML workflow metadata and body",
+      "limits": [
+        "no full API comparison",
+        "no substring/ranking equivalence",
+        "no workflow execution equivalence",
+        "no process shutdown comparison"
+      ]
+    },
+    "broad_node_attempt": {
+      "passed": 132,
+      "failed": 32,
+      "note": "network fixtures failed with EPERM on loopback"
+    },
+    "broad_rust_attempt": "stopped at anthropic_transport; socket creation EPERM",
+    "broad_python_attempt": "incomplete; socket restrictions and timeout",
+    "live_chromium": "not passed; Chromium/headless-shell abort on socket syscalls forbidden by sandbox",
+    "third_party_notices": "not regenerated; macOS archives unavailable offline and DNS restricted; release gates unchanged",
+    "platform_release_matrix": "not executed for these changes",
+    "live_provider_channel_calls": "not executed"
+  }
+}

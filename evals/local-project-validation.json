@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "ran_on": "2026-11-10",
+  "case": "installed SDK reads project package name/version, offline fixture only",
+  "mode": "offline",
+  "passed": true,
+  "node": "24.15.0",
+  "sdk_version": "0.1.0",
+  "native_sha256": "a2f1c3dc644fca8d9bdcb743adf06585bbd60bc751e3ce8d0eb2fbedcdfda85d",
+  "project": {
+    "name": "@johpaz/hive-agents",
+    "version": "1.1.4"
+  },
+  "source_example": "examples/local-project-validation.mjs",
+  "source_example_sha256": "5a38126f56fa25be3d17f6c1571a6c5ffe6d1a8a486340b200dfa0e46e47e2f7",
+  "runbook_command_blocks_verified": [
+    "isolated consumer setup",
+    "explicit offline invocation"
+  ],
+  "artifacts": [
+    {
+      "path": "dist/npm/johpaz-hive-sdk-rust-0.1.0.tgz",
+      "sha256": "8d66a9877f2e169d33cd60cc647cdb40bff23649994835870e99e1d665f7e40a"
+    },
+    {
+      "path": "dist/npm/johpaz-hive-sdk-rust-linux-x64-gnu-0.1.0.tgz",
+      "sha256": "a92eb6019dc3105b5a43e598ff40f353f861de399da90bbaee6a0fa0c8004379"
+    }
+  ],
+  "policy": {
+    "max_tool_calls": 1,
+    "max_total_tokens": 1024,
+    "max_output_tokens": 128,
+    "max_total_output_tokens": 256,
+    "max_run_ms": 20000,
+    "max_context_bytes": 16384
+  },
+  "objective_policy": {
+    "max_model_calls": 2,
+    "max_tool_calls": 1,
+    "max_output_tokens": 128,
+    "max_total_output_tokens": 256,
+    "max_run_ms": 20000
+  },
+  "result": {
+    "status": "completed",
+    "content": "{\"name\":\"@johpaz/hive-agents\",\"version\":\"1.1.4\"}",
+    "stop_reason": null,
+    "stats": {
+      "charged_input_tokens": 0,
+      "estimated_input_tokens": 0,
+      "input_tokens": 2,
+      "model_calls": 2,
+      "output_tokens": 2,
+      "reserved_input_tokens": 0,
+      "reserved_output_tokens": 0,
+      "tool_calls": 1,
+      "tool_rejections": 0,
+      "unmetered_model_calls": 0
+    }
+  },
+  "tool_effects": 1,
+  "history_reopened": true,
+  "history_reopen_scope": "Agent reopened in the same process/store; not process crash/restart",
+  "elapsed_ms": 27,
+  "usage_kind": "synthetic values from deterministic provider, not model billing",
+  "live_model_calls": false,
+  "backend_adapter_implemented": false,
+  "existing_database_opened": false,
+  "ui_modified": false
+}
