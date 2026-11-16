@@ -34,6 +34,14 @@ class CatalogServices:
     def collection(self, kind: EntityKind) -> CatalogCollection:
         return CatalogCollection(self._store, kind)
 
+    async def bundled_skills(self) -> list[dict]:
+        """Skills that ship with the SDK. Listing enables nothing."""
+        return await self._store._dispatch_async({'op': 'services', 'command': {'op': 'bundled_skills'}})
+
+    async def import_bundled_skill(self, name: str) -> CatalogRecord:
+        """Import one bundled skill (obscura_browser, office_document_manager, pdf_report_writer) into the catalog."""
+        return await self._store._dispatch_async({'op': 'services', 'command': {'op': 'import_bundled_skill', 'name': name}})
+
     async def import_skill(self, path: str) -> CatalogRecord:
         return await self._store._dispatch_async({'op': 'services', 'command': {'op': 'import_skill', 'path': path}})
 

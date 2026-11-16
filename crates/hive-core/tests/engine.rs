@@ -108,7 +108,7 @@ fn tools_roundtrip_and_usage_accumulates() {
     let Action::Model { request } = e.action() else {
         panic!("expected model");
     };
-    let body = request_body(request);
+    let body = request_body(request).unwrap();
     assert_eq!(
         body["messages"][2]["tool_calls"][0]["function"]["arguments"],
         "{\"q\":\"answer\"}"

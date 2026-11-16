@@ -1,4 +1,5 @@
 import type { SessionStore, Agent, JobExecutor, Job } from '../../packages/npm/index';
+import { NativeTools } from '../../packages/npm/index';
 
 // Public API composition: a queued agent result can be persisted directly.
 export async function runAgentJob(store: SessionStore, agent: Agent): Promise<Job[]> {
@@ -28,4 +29,18 @@ export async function scheduledJob(store: SessionStore) {
   await queue.enableSchedule(entry.id);
   const tick = await queue.tickSchedule(entry.id);
   return { tick, next: await queue.nextOccurrence(entry.spec.schedule, Date.now()) };
+}
+
+export async function hostSecrets(store: SessionStore, key: Uint8Array) {
+  const vault = await store.openSecrets({ key, keyId: 'host' });
+  try {
+    const record = await vault.put('provider-key', 'fixture only');
+    const value = await vault.reveal(record.name);
+    const info = await vault.info();
+    return { revision: record.revision, value, retained: info.retained_records };
+  } finally { await vault.close(); }
+}
+
+export async function nativeAgentTools(root: string): Promise<import('../../packages/npm/index').Tool[]> {
+  return new NativeTools({ root, command: { allowed_programs: ['git'] } }).createTools();
 }

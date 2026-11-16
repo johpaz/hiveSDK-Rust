@@ -143,3 +143,120 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result[0]['status'], 'completed'); self.assertEqual(len(calls), 2)
             self.assertEqual((await queue.group('turn'))['status'], 'completed')
         finally: wrong.close()
+
+
+class GoalTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.store = await SessionStore.open(self.dir.name, tenant_id='first')
+
+    async def asyncTearDown(self):
+        await self.store.close_async()
+        self.dir.cleanup()
+
+    async def finish(self, queue, kind, result):
+        job = await queue.claim('w', [kind])
+        self.assertIsNotNone(job, kind)
+        return await queue.finish(job['id'], job['execution_id'], {'type': 'completed', 'result': result})
+
+    async def test_goal_runs_to_acceptance_replans_and_cancels(self):
+        await Objective.open({'max_model_calls': 10}, store=self.store, objective_id='root')
+        queue = await self.store.open_queue('goals')
+        goal = await queue.create_goal('ship', {'objective_id': 'root', 'goal': 'Ship the report', 'planner_agent_id': 'planner', 'coordinator_agent_id': 'lead', 'max_rounds': 2})
+        self.assertEqual(goal['status'], 'planning')
+        tasks = [{'id': 'a', 'specialist_id': 'research', 'prompt': 'Find evidence'}]
+        for index in (0, 1):
+            await self.finish(queue, goal['kinds']['plan'], {'tasks': tasks})
+            goal = await queue.tick_goal('ship')
+            self.assertEqual(goal['status'], 'running')
+            await self.finish(queue, goal['kinds']['rounds'][index]['specialist'], {'text': 'evidence'})
+            goal = await queue.tick_goal('ship')
+            await self.finish(queue, goal['kinds']['rounds'][index]['synthesis'], {'text': 'synthesis'})
+            goal = await queue.tick_goal('ship')
+            self.assertEqual(goal['status'], 'reviewing')
+            verdict = {'accepted': True, 'evidence': 'report.pdf written'} if index else {'accepted': False, 'feedback': 'needs a chart'}
+            await self.finish(queue, goal['kinds']['review'], verdict)
+            goal = await queue.tick_goal('ship')
+            self.assertEqual(goal['status'], 'accepted' if index else 'planning')
+        self.assertEqual(len(goal['rounds']), 2)
+        with self.assertRaisesRegex(Exception, 'GOAL_IDEMPOTENCY_CONFLICT'):
+            await queue.create_goal('ship', {'objective_id': 'root', 'goal': 'Another', 'planner_agent_id': 'p', 'coordinator_agent_id': 'c'})
+        other = await queue.create_goal('stop', {'objective_id': 'root', 'goal': 'Never mind', 'planner_agent_id': 'p', 'coordinator_agent_id': 'c'})
+        self.assertEqual((await queue.cancel_goal('stop'))['status'], 'cancelled')
+        self.assertIsNone(await queue.claim('w', [other['kinds']['plan']]))
+        with self.assertRaisesRegex(Exception, 'GOAL_NOT_FOUND'):
+            await queue.goal('missing')
+
+    async def test_run_goal_drives_agents_and_fails_on_non_json(self):
+        from hive_sdk import run_goal, extract_json
+        self.assertEqual(extract_json('Sure!\n```json\n{"a":1}\n```'), {'a': 1})
+        self.assertEqual(extract_json('prefix {"a":{"b":2}} suffix'), {'a': {'b': 2}})
+        self.assertIsNone(extract_json('no json'))
+        self.assertIsNone(extract_json('[1]'))
+        objective = await Objective.open({'max_model_calls': 20}, store=self.store, objective_id='root')
+        queue = await self.store.open_queue('driven')
+        reviews = []
+
+        class Provider:
+            async def complete(self, request):
+                text = str(request)
+                content = 'specialist output'
+                if 'Plan round' in text:
+                    content = 'Plan:\n```json\n{"tasks":[{"id":"a","specialist_id":"research","prompt":"Find"},{"id":"b","specialist_id":"writer","prompt":"Draft"}]}\n```'
+                elif 'Review round' in text:
+                    reviews.append(1)
+                    content = '{"accepted":false,"feedback":"add sources"}' if len(reviews) == 1 else '{"accepted":true,"evidence":"sources added"}'
+                return {'content': content, 'usage': {'input_tokens': 1, 'output_tokens': 1}}
+
+        class Babble:
+            async def complete(self, request):
+                return {'content': 'I will think', 'usage': {'input_tokens': 1, 'output_tokens': 1}}
+
+        seen = []
+
+        async def agent_for(request):
+            seen.append(request['stage'])
+            return await Agent.open(store=self.store, objective=objective, agent_id=request['agent_id'], session_id=request['session_id'], model='fixture', provider=Provider())
+
+        await queue.create_goal('g', {'objective_id': 'root', 'goal': 'Write it up', 'planner_agent_id': 'planner', 'coordinator_agent_id': 'lead', 'max_rounds': 3})
+        report = await run_goal(queue, 'g', agent_for=agent_for)
+        self.assertEqual(report['status'], 'accepted')
+        self.assertEqual(len(report['rounds']), 2)
+        self.assertEqual(len(seen), 10)
+        self.assertEqual((await objective.inspect_async())['model_calls'], 10)
+        await queue.create_goal('bad', {'objective_id': 'root', 'goal': 'x', 'planner_agent_id': 'planner', 'coordinator_agent_id': 'lead'})
+
+        async def babbling(request):
+            return await Agent.open(store=self.store, objective=objective, agent_id=request['agent_id'], session_id=request['session_id'], model='fixture', provider=Babble())
+        failed = await run_goal(queue, 'bad', agent_for=babbling)
+        self.assertEqual(failed['status'], 'failed')
+        self.assertIn('not a JSON object', failed['error'])
+        with self.assertRaises(TypeError):
+            await run_goal(queue, 'g', agent_for=None)
+
+    async def test_job_administration_and_event_cursor(self):
+        queue = await self.store.open_queue('admin')
+        def job(kind, lane, **extra): return {'kind': kind, 'lane': lane, 'payload': {'n': 1}, **extra}
+        await queue.enqueue(job('flaky', 'l1', max_attempts=2))
+        for n in range(3):
+            await queue.enqueue(job('batch', f'b{n}'))
+        self.assertEqual(len((await queue.list_jobs({'kind': 'batch'}))['items']), 3)
+        claimed = await queue.claim('w', ['flaky'])
+        failed = await queue.finish(claimed['id'], claimed['execution_id'], {'type': 'failed', 'error': 'boom'})
+        self.assertEqual((await queue.retry_job(failed['id']))['status'], 'pending')
+        again = await queue.claim('w', ['flaky'])
+        await queue.finish(again['id'], again['execution_id'], {'type': 'failed', 'error': 'boom'})
+        with self.assertRaisesRegex(Exception, 'JOB_RETRY_NOT_ALLOWED'):
+            await queue.retry_job(failed['id'])
+        self.assertEqual((await queue.retry_job(failed['id'], force=True))['status'], 'pending')
+        self.assertEqual((await queue.cancel_jobs({'status': ['completed', 'failed']}))['cancelled'], [])
+        self.assertEqual(len((await queue.cancel_jobs({'kind': 'batch'}))['cancelled']), 3)
+        page = await queue.events(after=0, limit=3)
+        self.assertEqual([e['seq'] for e in page['items']], [1, 2, 3])
+        rest = await queue.events(after=page['next_after'])
+        self.assertEqual(rest['items'][0]['seq'], 4)
+        self.assertTrue(any(e['type'] == 'job.retried' for e in rest['items']))
+        with self.assertRaisesRegex(Exception, 'explicit kind'):
+            await queue.purge_jobs({}, 2_000_000_000_000)
+        self.assertEqual((await queue.purge_jobs({'kind': 'flaky', 'status': ['pending']}, 2_000_000_000_000))['purged'], 0)
+        self.assertEqual((await queue.prune_events(3))['removed'], 3)

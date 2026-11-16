@@ -146,3 +146,110 @@ test('group cancellation remains explicit and persisted', async () => fixture(as
   assert.equal(group.status, 'cancelled'); assert.equal(group.tasks[0].job.status, 'cancelled');
   await assert.rejects(queue.synthesizeGroup('turn'), /CANCELLED/);
 }));
+
+test('a goal runs plan, delegation, synthesis and review to acceptance and replans on rejection', async () => fixture(async store => {
+  await Objective.open({ max_model_calls: 10 }, { store, id: 'root' });
+  const queue = await store.openQueue('goals');
+  let goal = await queue.createGoal('ship', { objective_id: 'root', goal: 'Ship the report', planner_agent_id: 'planner', coordinator_agent_id: 'lead', max_rounds: 2 });
+  assert.equal(goal.status, 'planning');
+  const finish = async (kind, result) => {
+    const job = await queue.claim('w', [kind]);
+    assert.ok(job, `a pending ${kind} job`);
+    return queue.finish(job.id, job.execution_id, { type: 'completed', result });
+  };
+  const tasks = [{ id: 'a', specialist_id: 'research', prompt: 'Find evidence' }];
+  for (const round of [0, 1]) {
+    await finish(goal.kinds.plan, { tasks });
+    goal = await queue.tickGoal('ship');
+    assert.equal(goal.status, 'running');
+    await finish(goal.kinds.rounds[round].specialist, { text: 'evidence' });
+    goal = await queue.tickGoal('ship');
+    await finish(goal.kinds.rounds[round].synthesis, { text: 'synthesis' });
+    goal = await queue.tickGoal('ship');
+    assert.equal(goal.status, 'reviewing');
+    const accepted = round === 1;
+    await finish(goal.kinds.review, accepted ? { accepted: true, evidence: 'report.pdf written' } : { accepted: false, feedback: 'needs a chart' });
+    goal = await queue.tickGoal('ship');
+    assert.equal(goal.status, accepted ? 'accepted' : 'planning');
+  }
+  assert.equal(goal.rounds.length, 2);
+  assert.equal(goal.rounds[1].verdict.evidence, 'report.pdf written');
+  const retained = (await queue.inspect()).retained_jobs;
+  assert.equal((await queue.tickGoal('ship')).status, 'accepted');
+  assert.equal((await queue.inspect()).retained_jobs, retained);
+  await assert.rejects(queue.createGoal('ship', { objective_id: 'root', goal: 'Another', planner_agent_id: 'p', coordinator_agent_id: 'c' }), /GOAL_IDEMPOTENCY_CONFLICT/);
+  const second = await queue.createGoal('stop', { objective_id: 'root', goal: 'Never mind', planner_agent_id: 'p', coordinator_agent_id: 'c' });
+  assert.equal((await queue.cancelGoal('stop')).status, 'cancelled');
+  assert.equal(await queue.claim('w', [second.kinds.plan]), null);
+  await assert.rejects(queue.goal('missing'), /GOAL_NOT_FOUND/);
+}));
+
+test('runGoal drives a goal with the host agents and charges the root objective', async () => fixture(async store => {
+  const { runGoal, extractJson } = await import('../index.mjs');
+  assert.deepEqual(extractJson('Sure!\n```json\n{"a":1}\n```'), { a: 1 });
+  assert.deepEqual(extractJson('prefix {"a":{"b":2}} suffix'), { a: { b: 2 } });
+  assert.equal(extractJson('no json here'), null);
+  assert.equal(extractJson('[1,2]'), null);
+  const objective = await Objective.open({ max_model_calls: 20 }, { store, id: 'root' });
+  const queue = await store.openQueue('driven');
+  const seen = [];
+  let reviews = 0;
+  const provider = { complete(request) {
+    const text = JSON.stringify(request);
+    let content = 'specialist output';
+    if (text.includes('Plan round')) content = 'Here is the plan:\n```json\n{"tasks":[{"id":"a","specialist_id":"research","prompt":"Find evidence"},{"id":"b","specialist_id":"writer","prompt":"Draft"}]}\n```';
+    else if (text.includes('Review round')) content = ++reviews === 1 ? '{"accepted":false,"feedback":"add sources"}' : '{"accepted":true,"evidence":"sources added"}';
+    return { content, usage: { input_tokens: 1, output_tokens: 1 } };
+  } };
+  await queue.createGoal('g', { objective_id: 'root', goal: 'Write it up', planner_agent_id: 'planner', coordinator_agent_id: 'lead', max_rounds: 3 });
+  const report = await runGoal(queue, 'g', { agentFor: async request => {
+    seen.push(`${request.stage}:${request.agentId}`);
+    return Agent.open({ store, objective, agentId: request.agentId, sessionId: request.sessionId, model: 'fixture', provider });
+  } });
+  assert.equal(report.status, 'accepted');
+  assert.equal(report.rounds.length, 2);
+  assert.equal(report.rounds[1].verdict.evidence, 'sources added');
+  assert.deepEqual(seen.filter(s => s.startsWith('plan')), ['plan:planner', 'plan:planner']);
+  assert.equal(seen.length, 2 * (1 + 2 + 1 + 1), 'plan, two tasks, synthesis and review in each of two rounds');
+  assert.equal((await objective.inspectAsync()).model_calls, 10);
+
+  // A model that does not answer with JSON fails the goal instead of being guessed.
+  await queue.createGoal('bad', { objective_id: 'root', goal: 'x', planner_agent_id: 'planner', coordinator_agent_id: 'lead' });
+  const babble = { complete() { return { content: 'I will think about it', usage: { input_tokens: 1, output_tokens: 1 } }; } };
+  const failed = await runGoal(queue, 'bad', { agentFor: r => Agent.open({ store, objective, agentId: r.agentId, sessionId: r.sessionId, model: 'fixture', provider: babble }) });
+  assert.equal(failed.status, 'failed');
+  assert.match(failed.error, /PLAN_JOB_Failed.*not a JSON object/);
+  await assert.rejects(runGoal(queue, 'g', {}), /agentFor/);
+}));
+
+test('job administration filters, retries and cancels, and the event log is a durable cursor', async () => fixture(async store => {
+  const queue = await store.openQueue('admin');
+  const job = (kind, lane, extra = {}) => ({ kind, lane, payload: { n: 1 }, ...extra });
+  await queue.enqueue(job('flaky', 'l1', { max_attempts: 2 }));
+  for (let n = 0; n < 3; n++) await queue.enqueue(job('batch', `b${n}`));
+  assert.equal((await queue.listJobs({ kind: 'batch' })).items.length, 3);
+  assert.equal((await queue.listJobs({ status: ['pending'] }, { limit: 2 })).items.length, 2);
+  const failing = await queue.claim('w', ['flaky']);
+  const failed = await queue.finish(failing.id, failing.execution_id, { type: 'failed', error: 'boom' });
+  assert.equal(failed.status, 'failed');
+  assert.equal((await queue.retryJob(failed.id)).status, 'pending');
+  const second = await queue.claim('w', ['flaky']);
+  await queue.finish(second.id, second.execution_id, { type: 'failed', error: 'boom again' });
+  await assert.rejects(queue.retryJob(failed.id), /JOB_RETRY_NOT_ALLOWED/);
+  assert.equal((await queue.retryJob(failed.id, { force: true })).status, 'pending');
+  assert.deepEqual((await queue.cancelJobs({ status: ['completed', 'failed'] })).cancelled, []);
+  const cancelled = await queue.cancelJobs({ kind: 'batch' });
+  assert.equal(cancelled.cancelled.length, 3);
+  assert.equal((await queue.listJobs({ kind: 'flaky', status: ['pending'] })).items.length, 1, 'other work is untouched');
+  const page = await queue.events({ after: 0, limit: 3 });
+  assert.deepEqual(page.items.map(event => event.seq), [1, 2, 3]);
+  const rest = await queue.events({ after: page.next_after, limit: 100 });
+  assert.equal(rest.items[0].seq, 4);
+  assert.ok(rest.items.some(event => event.type === 'job.retried'));
+  assert.equal(rest.next_after, rest.latest);
+  await assert.rejects(queue.purgeJobs({}, Date.now()), /explicit kind/);
+  await assert.rejects(queue.purgeJobs({ kind: 'hive.goal.plan.x' }, Date.now()), /cannot be purged/);
+  assert.equal((await queue.purgeJobs({ kind: 'flaky', status: ['pending'] }, Date.now() + 1000)).purged, 0, 'live jobs are never purged');
+  assert.equal((await queue.pruneEvents(3)).removed, 3);
+  assert.equal((await queue.events()).items[0].seq, 4);
+}));

@@ -1,5 +1,6 @@
 //! Rust HTTP transport. Credentials never enter serialized engine state.
-use crate::{Error, ModelReply, ModelRequest, Result, ToolCall, Usage};
+use crate::{AttachmentKind, Error, Message, ModelReply, ModelRequest, Result, ToolCall, Usage};
+pub use profile::{OpenAiProfile, Preset, presets};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -10,6 +11,8 @@ pub use tokio_util::sync::CancellationToken;
 pub mod anthropic;
 pub mod gemini;
 pub mod hiveagents;
+pub mod profile;
+mod resilience;
 pub mod streaming;
 
 #[derive(Clone, Deserialize)]
@@ -95,6 +98,13 @@ impl OpenAiCompatible {
     pub fn from_json(config: &str) -> Result<Self> {
         Self::new(serde_json::from_str(config)?)
     }
+    /// Same transport with a provider profile (tool-name rules, schema
+    /// adjustments, headers). See [`profile`].
+    pub fn with_profile(config: OpenAiConfig, profile: OpenAiProfile) -> Result<Self> {
+        Ok(Self {
+            inner: Arc::new(HttpProvider::new(config, Protocol::OpenAi)?.with_profile(profile)?),
+        })
+    }
     pub fn start(self: &Arc<Self>, request: ModelRequest, stream: bool) -> ModelStream {
         self.inner.start(request, stream)
     }
@@ -136,20 +146,57 @@ impl NativeProvider {
     }
     pub fn from_json(config: &str) -> Result<Self> {
         let mut config: Value = serde_json::from_str(config)?;
-        let kind = config
+        let object = config
             .as_object_mut()
-            .ok_or_else(|| Error::Input("provider config must be an object".into()))?
-            .remove("kind");
+            .ok_or_else(|| Error::Input("provider config must be an object".into()))?;
+        if let Some(preset) = object.remove("preset") {
+            let id = preset
+                .as_str()
+                .ok_or_else(|| Error::Input("preset must be a string".into()))?;
+            profile::expand(object, id)?;
+        }
+        let kind = object.remove("kind");
+        let profile = object.remove("profile");
+        let resilience = object.remove("resilience").filter(|value| !value.is_null());
+        let is_openai =
+            kind.is_none() || kind.as_ref().and_then(Value::as_str) == Some("openai_compatible");
+        if profile.is_some() && !is_openai {
+            return Err(Error::Input(
+                "profile applies only to OpenAI-compatible providers".into(),
+            ));
+        }
         let inner = match kind.as_ref().and_then(Value::as_str) {
-            None if kind.is_none() => OpenAiCompatible::new(serde_json::from_value(config)?)?.inner,
+            None if kind.is_none() => {
+                OpenAiCompatible::with_profile(
+                    serde_json::from_value(config)?,
+                    parse_profile(profile)?,
+                )?
+                .inner
+            }
             Some("openai_compatible") => {
-                OpenAiCompatible::new(serde_json::from_value(config)?)?.inner
+                OpenAiCompatible::with_profile(
+                    serde_json::from_value(config)?,
+                    parse_profile(profile)?,
+                )?
+                .inner
             }
             Some("anthropic") => anthropic::Anthropic::new(serde_json::from_value(config)?)?.inner,
             Some("gemini") => gemini::Gemini::new(serde_json::from_value(config)?)?.inner,
             Some("hiveagents") => hiveagents::create(serde_json::from_value(config)?)?.inner,
             _ => return Err(Error::Input("unknown native provider kind".into())),
         };
+        let mut inner = inner;
+        if let Some(resilience) = resilience {
+            // HiveAgents manages its own backend lifecycle and is never retried.
+            if kind.as_ref().and_then(Value::as_str) == Some("hiveagents") {
+                return Err(Error::Input(
+                    "resilience does not apply to the HiveAgents provider".into(),
+                ));
+            }
+            Arc::get_mut(&mut inner)
+                .ok_or_else(|| Error::State("provider already shared".into()))?
+                .resilience = Some(resilience::Resilience::from_value(resilience)?);
+        }
         Ok(Self { inner })
     }
     pub fn start(&self, request: ModelRequest, stream: bool) -> ModelStream {
@@ -173,6 +220,11 @@ struct HttpProvider {
     config: OpenAiConfig,
     protocol: Protocol,
     headers: reqwest::header::HeaderMap,
+    profile: OpenAiProfile,
+    /// Profile-owned headers; host headers from `with_headers` take precedence.
+    profile_headers: reqwest::header::HeaderMap,
+    /// Explicit retries and circuit breaker; absent unless configured.
+    resilience: Option<resilience::Resilience>,
 }
 impl HttpProvider {
     fn new(config: OpenAiConfig, protocol: Protocol) -> Result<Self> {
@@ -204,7 +256,32 @@ impl HttpProvider {
             config,
             protocol,
             headers: reqwest::header::HeaderMap::new(),
+            profile: OpenAiProfile::default(),
+            profile_headers: reqwest::header::HeaderMap::new(),
+            resilience: None,
         })
+    }
+
+    fn with_profile(mut self, profile: OpenAiProfile) -> Result<Self> {
+        profile.validate()?;
+        if let Some(name) = &profile.session_header {
+            // One stable identifier per provider instance, never derived from user data.
+            self.profile_headers.insert(
+                reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                    .map_err(|_| Error::Input("invalid profile session_header".into()))?,
+                reqwest::header::HeaderValue::from_str(&uuid::Uuid::new_v4().simple().to_string())
+                    .map_err(|_| Error::Input("invalid session identifier".into()))?,
+            );
+        }
+        if let Some(agent) = &profile.user_agent {
+            self.profile_headers.insert(
+                reqwest::header::USER_AGENT,
+                reqwest::header::HeaderValue::from_str(agent)
+                    .map_err(|_| Error::Input("invalid profile user_agent".into()))?,
+            );
+        }
+        self.profile = profile;
+        Ok(self)
     }
 
     /// Must be called inside a Tokio runtime. The receiver applies bounded backpressure.
@@ -291,8 +368,22 @@ impl HttpProvider {
                 "provider state cannot be replayed through a different protocol".into(),
             ));
         }
+        if matches!(self.protocol, Protocol::OpenAi)
+            && !request.tools.is_empty()
+            && !profile::supports_tools(&self.profile, &request.model)
+        {
+            return Err(Error::Input(format!(
+                "model `{}` does not support tools for this provider",
+                request.model
+            )));
+        }
+        let mut restore = profile::NameMap::new();
         let mut body = match &self.protocol {
-            Protocol::OpenAi => request_body(request),
+            Protocol::OpenAi => {
+                let mut body = request_body(request)?;
+                restore = profile::apply(&self.profile, request, &mut body)?;
+                body
+            }
             Protocol::Anthropic {
                 default_max_output_tokens,
                 ..
@@ -335,22 +426,58 @@ impl HttpProvider {
             Protocol::Gemini { .. } => gemini::route(&request.model, stream)?,
         };
         let endpoint = format!("{}/{route}", self.config.base_url.trim_end_matches('/'));
-        let mut call = self.client.post(endpoint).json(&body);
-        if let Protocol::Anthropic { version, .. } = &self.protocol {
-            call = call.header("anthropic-version", version);
-        }
-        if let Some(key) = &self.config.api_key {
-            call = if matches!(self.protocol, Protocol::Gemini { .. }) {
-                call.header("x-goog-api-key", key)
-            } else {
-                call.bearer_auth(key)
+        let build = || {
+            let mut call = self.client.post(&endpoint).json(&body);
+            if let Protocol::Anthropic { version, .. } = &self.protocol {
+                call = call.header("anthropic-version", version);
+            }
+            if let Some(key) = &self.config.api_key {
+                call = if matches!(self.protocol, Protocol::Gemini { .. }) {
+                    call.header("x-goog-api-key", key)
+                } else {
+                    call.bearer_auth(key)
+                };
+            }
+            call.headers(self.profile_headers.clone())
+                .headers(self.headers.clone())
+        };
+        // Only a request that provably was not processed is ever repeated: a
+        // connection that never opened, or the server's own 429/503. Everything else
+        // (timeouts, other errors, anything that started to arrive) may have been
+        // processed and is reported as it happened.
+        let resilience = self.resilience.as_ref();
+        let mut retries = 0u32;
+        let mut response = loop {
+            if let Some(resilience) = resilience {
+                resilience.admit()?;
+            }
+            let sent = build().send().await;
+            let Some(resilience) = resilience else {
+                break sent.map_err(http_error)?;
             };
-        }
-        let mut response = call
-            .headers(self.headers.clone())
-            .send()
-            .await
-            .map_err(http_error)?;
+            let (health, refusal) = match &sent {
+                Ok(response) if matches!(response.status().as_u16(), 429 | 503) => (
+                    resilience::Health::Failing,
+                    Some(resilience::retry_after(response.headers())),
+                ),
+                Ok(response) if response.status().is_server_error() => {
+                    (resilience::Health::Failing, None)
+                }
+                Ok(_) => (resilience::Health::Reachable, None),
+                Err(error) if error.is_connect() => (resilience::Health::Failing, Some(None)),
+                Err(_) => (resilience::Health::Failing, None),
+            };
+            resilience.record(health);
+            if let Some(asked) = refusal
+                && retries + 1 < resilience.retry.max_attempts
+                && let Some(wait) = resilience.delay(retries, asked)
+            {
+                retries += 1;
+                tokio::time::sleep(wait).await;
+                continue;
+            }
+            break sent.map_err(http_error)?;
+        };
         if !response.status().is_success() {
             if self.managed.is_some() {
                 return Err(Error::Provider(format!(
@@ -374,11 +501,12 @@ impl HttpProvider {
             }
             let body = serde_json::from_slice(&bytes)
                 .map_err(|_| Error::Provider("invalid response JSON".into()))?;
-            let reply = match self.protocol {
+            let mut reply = match self.protocol {
                 Protocol::OpenAi => parse_reply(body)?,
                 Protocol::Anthropic { .. } => anthropic::parse_reply(body)?,
                 Protocol::Gemini { .. } => gemini::parse_reply(body)?,
             };
+            profile::restore_names(&mut reply, &restore);
             return send(sender, ModelEvent::Reply { reply }).await;
         }
         let mut decoder = streaming::SseDecoder::default();
@@ -393,7 +521,8 @@ impl HttpProvider {
             }
             for frame in decoder.feed(&chunk)? {
                 if matches!(self.protocol, Protocol::OpenAi) && frame.trim() == "[DONE]" {
-                    let reply = accumulator.finish()?;
+                    let mut reply = accumulator.finish()?;
+                    profile::restore_names(&mut reply, &restore);
                     send(sender, ModelEvent::Reply { reply }).await?;
                     return Ok(());
                 }
@@ -407,7 +536,12 @@ impl HttpProvider {
                 let complete = events
                     .iter()
                     .any(|event| matches!(event, ModelEvent::Reply { .. }));
-                for event in events {
+                for mut event in events {
+                    // Fragments in ToolCallDelta keep the wire name; only the
+                    // completed reply is mapped back to the original tool name.
+                    if let ModelEvent::Reply { reply } = &mut event {
+                        profile::restore_names(reply, &restore);
+                    }
                     send(sender, event).await?;
                 }
                 if complete {
@@ -433,6 +567,14 @@ impl HttpProvider {
     }
 }
 
+fn parse_profile(profile: Option<Value>) -> Result<OpenAiProfile> {
+    profile
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| Error::Input(format!("invalid provider profile: {error}")))
+        .map(Option::unwrap_or_default)
+}
+
 fn http_error(error: reqwest::Error) -> Error {
     if error.is_timeout() {
         Error::Timeout
@@ -444,13 +586,56 @@ async fn send(sender: &mpsc::Sender<Result<ModelEvent>>, event: ModelEvent) -> R
     sender.send(Ok(event)).await.map_err(|_| Error::Cancelled)
 }
 
+/// Chat Completions content array for a user message with attachments. Inline
+/// audio and documents need base64; audio is limited to the formats the API names.
+fn user_parts(message: &Message) -> Result<Value> {
+    let unsupported = |what: &str| Error::Input(format!("OpenAI chat does not support {what}"));
+    let mut parts = vec![json!({"type":"text","text":message.content})];
+    for attachment in &message.attachments {
+        parts.push(match attachment.kind {
+            AttachmentKind::Image => json!({"type":"image_url","image_url":{
+                "url": attachment.url.clone().or_else(|| attachment.data_url())}}),
+            AttachmentKind::Audio => {
+                let format = match attachment.media_type.as_str() {
+                    "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+                    "audio/mpeg" | "audio/mp3" => "mp3",
+                    _ => return Err(unsupported("this audio media type (use wav or mp3)")),
+                };
+                let data = attachment
+                    .data
+                    .as_ref()
+                    .ok_or_else(|| unsupported("audio by URL"))?;
+                json!({"type":"input_audio","input_audio":{"data":data,"format":format}})
+            }
+            AttachmentKind::Document => {
+                let file_data = attachment
+                    .data_url()
+                    .ok_or_else(|| unsupported("documents by URL"))?;
+                json!({"type":"file","file":{
+                    "filename": attachment.name.as_deref().unwrap_or("document"),
+                    "file_data": file_data}})
+            }
+        });
+    }
+    Ok(Value::Array(parts))
+}
+
 /// Convert the neutral contract into Chat Completions wire messages.
-pub fn request_body(request: &ModelRequest) -> Value {
+pub fn request_body(request: &ModelRequest) -> Result<Value> {
+    crate::media::ensure_user_only(&request.messages)?;
     let messages: Vec<Value> = request
         .messages
         .iter()
         .map(|m| {
             let mut v = json!({ "role": m.role, "content": m.content });
+            if !m.attachments.is_empty() {
+                if m.role != "user" {
+                    return Err(Error::Input(
+                        "only user messages can carry attachments".into(),
+                    ));
+                }
+                v["content"] = user_parts(m)?;
+            }
             if let Some(id) = &m.tool_call_id {
                 v["tool_call_id"] = json!(id);
             }
@@ -466,9 +651,9 @@ pub fn request_body(request: &ModelRequest) -> Value {
                         .collect::<Vec<_>>()
                 );
             }
-            v
+            Ok(v)
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let mut body = json!({ "model": request.model, "messages": messages, "stream": false });
     if let Some(cap) = request.max_output_tokens {
         body["max_completion_tokens"] = json!(cap);
@@ -488,7 +673,7 @@ pub fn request_body(request: &ModelRequest) -> Value {
                 .collect::<Vec<_>>()
         );
     }
-    body
+    Ok(body)
 }
 
 pub fn parse_reply(body: Value) -> Result<ModelReply> {

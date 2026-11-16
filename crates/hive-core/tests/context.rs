@@ -299,12 +299,12 @@ fn invalid_policy_is_rejected_and_old_records_default_to_unbounded() {
     let Action::Model { request: req } = state.action() else {
         panic!()
     };
-    assert!(request_body(req).get("context").is_none());
+    assert!(request_body(req).unwrap().get("context").is_none());
     let mut limited = engine(policy(500));
     limited.start("hi".into()).unwrap();
     let Action::Model { request: req } = limited.action() else {
         panic!()
     };
     assert!(req.context.is_some());
-    assert!(request_body(req).get("context").is_none());
+    assert!(request_body(req).unwrap().get("context").is_none());
 }

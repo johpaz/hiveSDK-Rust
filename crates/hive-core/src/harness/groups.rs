@@ -34,7 +34,7 @@ struct Group {
     cancelled: bool,
     proofs: BTreeMap<String, Value>,
 }
-fn digest(value: &Value) -> Result<String> {
+pub(super) fn digest(value: &Value) -> Result<String> {
     let bytes = serde_json::to_vec(value)?;
     Ok(ring::digest::digest(&ring::digest::SHA256, &bytes)
         .as_ref()

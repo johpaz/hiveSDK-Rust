@@ -53,7 +53,9 @@ fn unhex(value: &str, max: usize) -> Result<Vec<u8>> {
     }
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let digit = |b: u8| match b {
                 b'0'..=b'9' => Some(b - b'0'),
@@ -224,6 +226,8 @@ pub struct SecretVault {
     vault: String,
     key_id: String,
     key: Arc<LessSafeKey>,
+    #[cfg(test)]
+    before_rotation_commit: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 impl fmt::Debug for SecretVault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -304,6 +308,8 @@ impl SecretVault {
             vault: vault.into(),
             key_id: key_id.into(),
             key: Arc::new(key.cipher()?),
+            #[cfg(test)]
+            before_rotation_commit: None,
         };
         for _ in 0..32 {
             if value
@@ -388,6 +394,9 @@ impl SecretVault {
         }
         for _ in 0..32 {
             let mut anchor = self.anchor()?;
+            if anchor.encryptions > MAX_ENCRYPTIONS - 2 {
+                return Err(Error::State("SECRET_KEY_ROTATION_REQUIRED".into()));
+            }
             let previous = self.record(name)?;
             if previous.as_ref().map_or(0, |r| r.meta.revision) != revision
                 || (deleted && previous.as_ref().is_none_or(|r| r.meta.deleted))
@@ -423,9 +432,6 @@ impl SecretVault {
                 },
             };
             record.sealed = seal_with(&self.key, &record.aad()?, value.as_bytes())?;
-            if anchor.encryptions > MAX_ENCRYPTIONS - 2 {
-                return Err(Error::State("SECRET_KEY_ROTATION_REQUIRED".into()));
-            }
             let old_anchor = anchor.revision;
             anchor.revision = anchor
                 .revision
@@ -578,12 +584,16 @@ impl SecretVault {
                 doc: serde_json::to_value(anchor)?,
                 expected_version: Some(old),
             });
+            #[cfg(test)]
+            if let Some(hook) = &self.before_rotation_commit {
+                hook();
+            }
             match self.store.db.col_batch(&ops) {
                 Ok(_) => {
                     self.key_id = key_id.into();
                     self.key = next_key;
                     return Ok(
-                        json!({"vault_id":self.vault,"key_id":self.key_id,"revision":old+1,"retained_records":ops.len()-1,"max_records":LIMIT}),
+                        json!({"vault_id":self.vault,"key_id":self.key_id,"revision":old+1,"retained_records":ops.len()-1,"max_records":LIMIT,"encryptions":ops.len(),"max_encryptions":MAX_ENCRYPTIONS}),
                     );
                 }
                 Err(error) if error.to_string().contains("version conflict on") => continue,
@@ -698,3 +708,6 @@ impl SecretVaultHandle {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

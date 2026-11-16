@@ -65,7 +65,10 @@ fn reserves_before_dispatch_reconciles_and_clamps_the_next_request() {
         serde_json::to_value(&state).unwrap()["stats"]["reserved_output_tokens"],
         4
     );
-    assert_eq!(request_body(request(&state))["max_completion_tokens"], 4);
+    assert_eq!(
+        request_body(request(&state)).unwrap()["max_completion_tokens"],
+        4
+    );
     state.accept_reply(reply(3, true)).unwrap();
     state.accept_tool("c", json!(1)).unwrap();
     assert_eq!(request(&state).max_output_tokens, Some(2));

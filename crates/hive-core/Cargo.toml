@@ -12,6 +12,7 @@ harness = []
 scheduler = ["harness", "dep:chrono", "dep:chrono-tz"]
 services = ["dep:serde_yaml", "dep:zeroize"]
 browser = ["dep:tokio-tungstenite", "dep:futures-util"]
+tools = ["dep:miniz_oxide"]
 
 [dependencies]
 serde.workspace = true
@@ -33,6 +34,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"], option
 chrono-tz = { version = "0.9", optional = true }
 
 zeroize = { version = "1", optional = true }
+miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

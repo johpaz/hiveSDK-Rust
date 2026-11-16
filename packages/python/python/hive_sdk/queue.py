@@ -26,6 +26,22 @@ class GroupSpec(_GroupRequired, total=False):
     require_verification: bool
 
 
+class _GoalRequired(TypedDict):
+    objective_id: str
+    goal: str
+    planner_agent_id: str
+    coordinator_agent_id: str
+
+
+class GoalSpec(_GoalRequired, total=False):
+    reviewer_agent_id: str | None
+    specialist_ids: list[str]
+    max_rounds: int
+    max_tasks_per_round: int
+    depth: int
+    require_verification: bool
+
+
 class QueuePolicy(TypedDict, total=False):
     max_concurrency: int
     lease_ms: int
@@ -177,6 +193,16 @@ class DurableQueue:
     async def group(self, group_id: str): return await self._call('group_get', group_id=group_id)
     async def synthesize_group(self, group_id: str) -> Job: return await self._call('group_synthesize', group_id=group_id)
     async def cancel_group(self, group_id: str): return await self._call('group_cancel', group_id=group_id)
+    async def list_jobs(self, filter: dict | None = None, *, limit: int = 50, cursor: str | None = None): return await self._call('jobs_list', filter=filter or {}, limit=limit, cursor=cursor)
+    async def retry_job(self, job_id: str, *, force: bool = False) -> Job: return await self._call('job_retry', job_id=job_id, force=force)
+    async def cancel_jobs(self, filter: dict): return await self._call('jobs_cancel_where', filter=filter)
+    async def purge_jobs(self, filter: dict, finished_before: int, *, limit: int = 100): return await self._call('jobs_purge', filter=filter, finished_before=finished_before, limit=limit)
+    async def events(self, *, after: int = 0, limit: int = 100): return await self._call('events', after=after, limit=limit)
+    async def prune_events(self, up_to: int): return await self._call('events_prune', up_to=up_to)
+    async def create_goal(self, goal_id: str, spec: GoalSpec): return await self._call('goal_create', goal_id=goal_id, spec=spec)
+    async def goal(self, goal_id: str): return await self._call('goal_get', goal_id=goal_id)
+    async def tick_goal(self, goal_id: str): return await self._call('goal_tick', goal_id=goal_id)
+    async def cancel_goal(self, goal_id: str): return await self._call('goal_cancel', goal_id=goal_id)
     async def group_verification_input(self, group_id: str, task_id: str): return await self._call('group_verification_input', group_id=group_id, task_id=task_id)
     async def record_group_proof(self, group_id: str, task_id: str, verification_key: str): return await self._call('group_record_proof', group_id=group_id, task_id=task_id, verification_key=verification_key)
 

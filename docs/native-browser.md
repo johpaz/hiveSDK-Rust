@@ -1,4 +1,6 @@
-# Navegador CDP nativo
+# Cliente CDP nativo
+
+> El navegador que usan las herramientas del SDK es **Obscura** ([obscura.md](obscura.md)). Este cliente CDP es de bajo nivel, para una página que el host ya controla; el SDK no lanza ni instala Chromium.
 
 El feature Rust `browser` añade un cliente CDP por WebSocket. Los bindings npm/Python lo incluyen y exponen Browser. El navegador ejecuta su propio motor; el control y transporte del SDK están en Rust, sin procesos auxiliares Node/Bun ni Playwright.
 

@@ -4,6 +4,7 @@ import { DurableQueue } from './queue.mjs';
 import { SecretVault, copySecretKey } from './secrets.mjs';
 export { SecretVault } from './secrets.mjs';
 export { DurableQueue } from './queue.mjs';
+export { runGoal, extractJson } from './goals.mjs';
 export { CatalogServices } from './services.mjs';
 import { existsSync } from 'node:fs';
 import { nativePackage } from './platform.mjs';
@@ -28,6 +29,8 @@ export class SessionStore {
   #exclusive = false;
 
   get services() { return new CatalogServices(this); }
+  /** Tenant-scoped artifact store with its files under `root`. */
+  artifacts(root) { return new ArtifactStore(this, root); }
   openQueue(id = 'default', policy = {}) { return DurableQueue.open({ store: this, id, policy }); }
 
   async openSecrets({ id = 'default', keyId = 'primary', key }) {
@@ -186,25 +189,35 @@ class NativeHttpProvider {
 
 export class OpenAICompatible extends NativeHttpProvider {
   constructor({ baseUrl = 'https://api.openai.com/v1', apiKey, timeoutMs = 60_000,
-    maxResponseBytes = 16 * 1024 * 1024, outputTokenParameter = 'max_completion_tokens' } = {}) {
+    maxResponseBytes = 16 * 1024 * 1024, outputTokenParameter = 'max_completion_tokens', resilience } = {}) {
     super({ kind: 'openai_compatible', base_url: baseUrl, api_key: apiKey, timeout_ms: timeoutMs,
-      max_response_bytes: maxResponseBytes, output_token_parameter: outputTokenParameter });
+      max_response_bytes: maxResponseBytes, output_token_parameter: outputTokenParameter, resilience });
+  }
+}
+
+/**
+ * A hosted provider by id (see docs/providers.md). Protocol, base URL and wire
+ * profile come from the preset; anything given here wins over it.
+ */
+export class PresetProvider extends NativeHttpProvider {
+  constructor(preset, { apiKey, baseUrl, timeoutMs, maxResponseBytes, profile, resilience } = {}) {
+    super({ preset, api_key: apiKey, base_url: baseUrl, timeout_ms: timeoutMs, max_response_bytes: maxResponseBytes, profile, resilience });
   }
 }
 
 export class Anthropic extends NativeHttpProvider {
   constructor({ baseUrl = 'https://api.anthropic.com/v1', apiKey, timeoutMs = 60_000,
-    maxResponseBytes = 16 * 1024 * 1024, apiVersion = '2026-10-21', defaultMaxOutputTokens = 4096 } = {}) {
+    maxResponseBytes = 16 * 1024 * 1024, apiVersion = '2026-10-21', defaultMaxOutputTokens = 4096, resilience } = {}) {
     super({ kind: 'anthropic', base_url: baseUrl, api_key: apiKey, timeout_ms: timeoutMs,
-      max_response_bytes: maxResponseBytes, api_version: apiVersion, default_max_output_tokens: defaultMaxOutputTokens });
+      max_response_bytes: maxResponseBytes, api_version: apiVersion, default_max_output_tokens: defaultMaxOutputTokens, resilience });
   }
 }
 
 export class Gemini extends NativeHttpProvider {
   constructor({ baseUrl = 'https://generativelanguage.googleapis.com/v1beta', apiKey, timeoutMs = 60_000,
-    maxResponseBytes = 16 * 1024 * 1024, defaultMaxOutputTokens = 4096 } = {}) {
+    maxResponseBytes = 16 * 1024 * 1024, defaultMaxOutputTokens = 4096, resilience } = {}) {
     super({ kind: 'gemini', base_url: baseUrl, api_key: apiKey, timeout_ms: timeoutMs,
-      max_response_bytes: maxResponseBytes, default_max_output_tokens: defaultMaxOutputTokens });
+      max_response_bytes: maxResponseBytes, default_max_output_tokens: defaultMaxOutputTokens, resilience });
   }
 }
 
@@ -1055,5 +1068,97 @@ export class Browser {
   extract(selector = 'body') { return this.#call('extract', { selector }); }
   screenshot() { return this.#call('screenshot'); }
   cancel() { this.#native.cancel(); }
+  async close() { await this.#native.close(); }
+}
+
+/**
+ * Sandboxed filesystem, command and web tools. Command and web tools exist only
+ * when their policy is configured; nothing runs through a shell.
+ */
+/** Bounded artifact store: bytes under `root`, metadata in the tenant's HiveDB. See docs/artifacts.md. */
+export class ArtifactStore {
+  #store;
+  #root;
+  constructor(store, root) {
+    if (typeof root !== 'string' || root === '') throw new TypeError('ArtifactStore needs a root directory');
+    this.#store = store; this.#root = root;
+  }
+  #call(command) { return this.#store._dispatchAsync({ op: 'artifacts', root: this.#root, command }); }
+  definitions() { return this.#call({ op: 'tool_definitions' }); }
+  execute(name, arguments_) { return this.#call({ op: 'execute_tool', name, arguments: arguments_ }); }
+  /** Agent-ready tools: artifact_save/inspect/read/list/delete and image_info. */
+  async createTools() {
+    return (await this.definitions()).map(definition => ({ ...definition, execute: arguments_ => this.execute(definition.name, arguments_) }));
+  }
+  /** Removes the content of every active artifact whose retention elapsed; returns their ids. */
+  async expire({ now } = {}) { return (await this.#call({ op: 'expire', now })).expired; }
+}
+
+/**
+ * Opt-in decision oracle (Jev/Kev protocol). Advisory only: a failure returns a
+ * `fallback` reply and never throws. With an `objective`, each call is reserved
+ * before it is sent and its usage settled afterwards, like any model call.
+ */
+export class Oracle {
+  #native;
+  #cap;
+  constructor(config) {
+    this.#cap = config.max_output_tokens ?? 64;
+    this.#native = new (native().NativeOracle)(JSON.stringify(config));
+  }
+  async ask(state, questions, { objective, depth = 0, signal } = {}) {
+    if (signal?.aborted) throw new Error('CANCELLED');
+    let permit = null;
+    if (objective && Object.keys(questions).length > 0 && !this.status().cooling_down) {
+      permit = await objective._dispatchAsync({ op: 'model', depth, cap: this.#cap });
+    }
+    const abort = () => this.#native.cancel();
+    signal?.addEventListener('abort', abort, { once: true });
+    let reply;
+    try { reply = JSON.parse(await this.#native.ask(JSON.stringify({ state, questions }))); }
+    finally { signal?.removeEventListener('abort', abort); }
+    if (permit && reply.outcome === 'decision') await objective._dispatchAsync({ op: 'settle', id: permit.id, usage: reply.charge ?? null });
+    return reply;
+  }
+  status() { return JSON.parse(this.#native.status()); }
+  recordOverruled(reason) { return this.#native.recordOverruled(reason); }
+  recordAgreement() { this.#native.recordAgreement(); }
+  reset() { this.#native.reset(); }
+  cancel() { this.#native.cancel(); }
+}
+
+export class NativeTools {
+  #native;
+  #active = new Set();
+  constructor(config) {
+    this.#native = new (native().NativeTools)(JSON.stringify(config));
+    // A Node process that exits does not drop native objects, so an Obscura
+    // process the tools started would outlive it; stop it when the process exits.
+    if (config.obscura) process.once('exit', () => this.#native.closeNow());
+  }
+  async #call(command, signal) {
+    if (signal?.aborted) throw new Error('CANCELLED');
+    const request = this.#native.fork();
+    const abort = () => request.cancel();
+    this.#active.add(request);
+    signal?.addEventListener('abort', abort, { once: true });
+    try { return JSON.parse(await request.dispatch(JSON.stringify(command))); }
+    finally { this.#active.delete(request); signal?.removeEventListener('abort', abort); }
+  }
+  definitions() { return this.#call({ op: 'tool_definitions' }); }
+  execute(name, arguments_) { return this.#call({ op: 'execute_tool', name, arguments: arguments_ }); }
+  /** Agent-ready tools: definitions plus bound executors. */
+  async createTools() {
+    return (await this.definitions()).map(definition => ({ ...definition, execute: (arguments_, context) =>
+      this.#call({ op: 'execute_tool', name: definition.name, arguments: arguments_ }, context?.signal) }));
+  }
+  /**
+   * Downloads and installs the latest Obscura into `obscura.install_dir` (`~/.hive/bin` by default) after
+   * checking its published SHA-256. Keeps an existing install unless `update` is true.
+   */
+  installObscura({ update = false } = {}) { return this.#call({ op: 'install_obscura', update }); }
+  /** Aborts calls in flight; later calls are unaffected. */
+  cancel() { for (const request of this.#active) request.cancel(); }
+  /** Stops the Obscura session the obscura_* tools started, if any. The next call starts a new one. */
   async close() { await this.#native.close(); }
 }

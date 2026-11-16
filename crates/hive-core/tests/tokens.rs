@@ -15,6 +15,7 @@ fn policy(encoding: TokenEncoding, max_tokens: u64) -> LoopPolicy {
             framing: Default::default(),
             max_total_tokens: None,
             context_window_tokens: None,
+            attachment_tokens: None,
         }),
         ..Default::default()
     }
@@ -81,8 +82,13 @@ fn explicit_encodings_count_the_full_envelope_with_unicode_escapes_and_literals(
         assert_eq!(estimate.serialized_tokens, reference(req, encoding));
         assert_eq!(estimate.overhead_tokens, 7);
         assert_eq!(estimate.total_tokens, estimate.serialized_tokens + 7);
-        assert!(request_body(req).get("context").is_none());
-        assert!(request_body(req).get("input_token_budget").is_none());
+        assert!(request_body(req).unwrap().get("context").is_none());
+        assert!(
+            request_body(req)
+                .unwrap()
+                .get("input_token_budget")
+                .is_none()
+        );
     }
 }
 
@@ -258,6 +264,7 @@ fn malformed_token_profiles_fail_at_construction_and_old_records_still_load() {
                         framing: Default::default(),
                         max_total_tokens: None,
                         context_window_tokens: None,
+                        attachment_tokens: None,
                     }),
                     ..Default::default()
                 }
@@ -338,7 +345,7 @@ fn wire_profiles_tokenize_the_shared_adapter_payload_instead_of_a_chat_template(
             }
             let req = request(&state);
             let mut body = match framing {
-                InputTokenFraming::OpenaiChatJson => request_body(req),
+                InputTokenFraming::OpenaiChatJson => request_body(req).unwrap(),
                 InputTokenFraming::AnthropicMessagesJson => {
                     hive_agent_core::provider::anthropic::request_body(req, 1).unwrap()
                 }

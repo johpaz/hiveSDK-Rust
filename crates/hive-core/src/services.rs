@@ -56,6 +56,10 @@ enum Command {
     ImportSkill {
         path: String,
     },
+    BundledSkills,
+    ImportBundledSkill {
+        name: String,
+    },
     Create {
         kind: EntityKind,
         id: String,
@@ -453,6 +457,24 @@ impl CatalogServices {
             Command::ExecuteTool { name, arguments } => self.execute_tool(&name, arguments)?,
             Command::ImportSkill { path } => {
                 let skill = skills::load(std::path::Path::new(&path))?;
+                serde_json::to_value(self.create(EntityKind::Skills, &skill.name, skill.data)?)?
+            }
+            Command::BundledSkills => Value::Array(
+                skills::BUNDLED
+                    .iter()
+                    .map(|(_, source)| {
+                        let skill = skills::parse(source)?;
+                        Ok(json!({"name":skill.name,"description":skill.data["description"],
+                            "version":skill.data["version"],"tools":skill.data["tools"]}))
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+            ),
+            Command::ImportBundledSkill { name } => {
+                let (_, source) = skills::BUNDLED
+                    .iter()
+                    .find(|(known, _)| *known == name)
+                    .ok_or_else(|| invalid("unknown bundled skill"))?;
+                let skill = skills::parse(source)?;
                 serde_json::to_value(self.create(EntityKind::Skills, &skill.name, skill.data)?)?
             }
             Command::Create { kind, id, data } => {

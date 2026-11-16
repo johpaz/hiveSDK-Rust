@@ -296,3 +296,20 @@ fn bm25_search_is_ranked_and_disabled_records_are_excluded() {
         .join(" ");
     assert!(s.search(K::Skills, &query, 10).is_err());
 }
+
+#[test]
+fn credential_references_are_descriptive_and_never_enable_secret_tools_or_inline_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SessionStore::open(dir.path(), "t".into()).unwrap();
+    let service = store.services();
+    let reference = json!({"vault_id":"main","name":"provider-key"});
+    let provider=service.create(K::Providers,"provider",json!({"name":"Fixture","protocol":"openai_compatible","base_url":"http://127.0.0.1:9","credential_ref":reference})).unwrap();
+    assert_eq!(provider.data["credential_ref"], reference);
+    assert!(service.create(K::Providers,"inline",json!({"name":"Fixture","protocol":"openai_compatible","base_url":"http://127.0.0.1:9","api_key":"private fixture"})).is_err());
+    assert!(service.create(K::Providers,"foreign",json!({"name":"Fixture","protocol":"openai_compatible","base_url":"http://127.0.0.1:9","credential_ref":{"vault_id":"main","name":"key","tenant_id":"other"}})).is_err());
+    assert!(
+        !serde_json::to_string(&service.tool_definitions())
+            .unwrap()
+            .contains("secret_reveal")
+    );
+}

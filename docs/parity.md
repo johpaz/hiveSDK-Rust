@@ -8,6 +8,18 @@ Se conserva un motor Rust y APIs propias en Rust, Node y Python; no se exige com
 
 ## Implementado en esta ampliación
 
+- [Vault de secretos embebido](embedded-secrets.md): cifrado autenticado, CAS, tombstones y rotación atómica con claves del host; solo referencias descriptivas en el catálogo.
+- [Tools nativas](native-tools.md): archivos, comandos permitidos y web GET/búsqueda configurables, con ejecutores Rust y bindings. Los contratos web que necesitan sockets siguen pendientes de ejecución en un entorno que permita loopback.
+- [Multimodalidad](multimodal.md): adjuntos de imagen, audio y documento en turnos de usuario para OpenAI chat, Anthropic y Gemini, con rechazos explícitos, asignación fija de tokens por adjunto e historial durable. Probado con proveedores deterministas; sin ejecución contra APIs reales ni comprobación de capacidades por modelo.
+- [Proveedores](providers.md): catálogo de presets para los 16 proveedores de la referencia y perfiles de cable (normalización de nombres de tools con mapa inverso, ajustes de esquema, `tool_choice`, rechazo de modelos sin tools, cabecera de sesión). Sin reintento sin herramientas por decisión de diseño; verificado solo con servidores locales.
+- [Oráculo opcional](oracle.md): cliente del protocolo de decisiones Jev/Kev con validación estricta, fallo en abierto, cooldown y desconfianza, cargado como llamada auxiliar al Objective raíz. Sin planificador del bucle; verificado solo con servidores locales.
+- [Artefactos](artifacts.md): almacén por inquilino con bytes en disco, SHA-256 verificado en cada lectura, retención explícita y herramientas `artifact_*`; dimensiones de imagen leídas de la cabecera (PNG/JPEG/GIF/WebP). Sin transformaciones de imagen ni entrega por HTTP/canales; verificado solo en local.
+- [Office](office.md): lectura y escritura de DOCX, XLSX, PPTX y texto PDF en el sandbox de archivos (presentaciones con tema, patrón y diseños; PDF extraído y comparado con poppler sobre PDFs de cuatro productores), con contenedor ZIP acotado, XML estricto y límites de tamaño/filas/hojas/tiempo; contrastado con archivos de python-docx/openpyxl/python-pptx y abierto en LibreOffice. Sin PDF, notas, imágenes ni comparación con la referencia.
+- [Administración de la cola, eventos y purga](durable-queue.md) y [cron del gateway sobre el scheduler compartido](native-scheduler.md): listado con filtros, reintento explícito, cancelación masiva, log de eventos atómico con cursor y purga de jobs terminados; `cronJobs` sigue siendo la definición, el kernel el motor y `taskRuns` una vista derivada, con jobs inciertos que nunca se reproducen.
+- [Resiliencia del proveedor](resilience.md): reintentos opt-in solo para peticiones que demostrablemente no se procesaron (conexión no abierta, 429/503) con backoff y `Retry-After`, dentro del timeout y deadline, y circuit breaker que falla sin enviar; nada incierto se repite. Probado con servidores locales guionizados, no con proveedores reales.
+- [Goal runner](goals.md): bucle durable planificar → delegar → sintetizar → revisar sobre la cola y los grupos, con `tick` idempotente y concurrente, rondas acotadas, planes/revisiones inválidos que fallan en vez de adivinarse, jobs inciertos que bloquean sin reintento y cancelación; probado en Rust, npm y Python con jobs completados a mano, **sin modelos reales**.
+- [Navegador Obscura](obscura.md): el navegador del SDK es Obscura (`obscura mcp` por stdio), sin Chromium ni Playwright; 31 herramientas `obscura_*` (evaluate y cookies opt-in), `allowed_hosts` con comprobación del destino final, descarte de la sesión tras timeout/cancelación/caída y skills que prohíben otros navegadores. Probado contra un servidor MCP falso **y contra el binario real Obscura 0.2.4 y 0.2.7** (37 herramientas con esquemas idénticos, capturas y PDF reales); **el SDK descarga la última release** a `~/.hive/bin` si no hay ninguna, verificando su SHA-256 publicado.
+
 - [Cola durable y pool Rust](durable-queue.md): prioridad/FIFO, lanes, idempotencia atómica, leases/fencing, reintentos seguros, cancelación con espera de callbacks y presupuesto raíz compartido. Bindings y prueba de salida abrupta Node → Python → Node, sin repetir el efecto de fixture.
 
 - [Grupos de especialistas y síntesis durable](durable-delegation.md): sesiones estables, fan-out atómico, fan-in único, incertidumbre explícita y pruebas ligadas al resultado exacto. Bindings Node/Python y recuperación entre procesos.
@@ -29,6 +41,8 @@ Evidencia de la ampliación de cola/pool: [queue-extension.json](../evals/queue-
 
 Evidencia de scheduler: [scheduler-extension.json](../evals/scheduler-extension.json).
 
+Evidencia de vault y herramientas nativas: [native-tools-secrets-extension.json](../evals/native-tools-secrets-extension.json). Incluye límites de ejecución web y pruebas entre Node/Python; no certifica multimodalidad ni completa la matriz.
+
 Evidencia de gateway/objetivos por turno: [gateway-delegation-extension.json](../evals/gateway-delegation-extension.json).
 
 Evidencia de grupos/pruebas durables: [delegation-extension.json](../evals/delegation-extension.json).
@@ -43,9 +57,9 @@ Las pruebas nuevas de servicios y MCP stdio en Rust y de los bindings npm/Python
 
 La regresión completa no está certificada en este sandbox. El intento Rust se detuvo en anthropic_transport con EPERM al abrir sockets. Node ejecutó 164 pruebas con aislamiento desactivado: 132 pasaron y 32 fallaron al escuchar en loopback; seis pruebas nuevas están entre las aprobadas. El barrido Python amplio encontró restricciones de sockets y agotó su timeout; no se contabiliza como aprobado. Las cinco pruebas nuevas sí pasaron en Python 3.10, con un heartbeat externo del event loop para evitar el bloqueo de notificaciones de workers observado también con asyncio.to_thread sin el SDK.
 
-Chromium y headless-shell abortaron por syscalls de sockets no permitidas: la prueba real de navegar/escribir/click/extraer/capturar sigue pendiente. No se han hecho pruebas con cuentas o proveedores remotos ni se han enviado mensajes reales.
+No se han hecho pruebas con cuentas o proveedores remotos ni se han enviado mensajes reales.
 
-El inventario de avisos no pudo regenerarse para el nuevo Cargo.lock: faltan dos archives de dependencias macOS, la caché global es de solo lectura y la descarga falla por resolución de red. Sigue pendiente antes de empaquetar; no se han habilitado publicaciones.
+En la primera entrega, la regeneración del inventario quedó bloqueada por archives macOS ausentes y restricciones de red. El check actual del inventario pasa para Cargo.lock (429 dependencias y 282 documentos únicos), pero conserva cinco paquetes pendientes de revisión y el estado incomplete. No se han habilitado publicaciones.
 
 ## Reproducir
 
@@ -64,6 +78,6 @@ La comparación requiere el checkout TS original, Bun para esa referencia y sus 
 
 ## Trabajo que continúa pendiente
 
-Completar extracción de servicios y secretos, compiler/contexto integrado, bundles de skills adaptados, oráculos, multimodalidad, catálogo completo de proveedores, manager/hot reload/transportes MCP restantes, bus general y administración/reconciliación de grupos/cola/pool, proof packets generales y goal runner, administración/migración completa del scheduler y triggers cron de Objective, catálogo restante de tools, Office, imágenes/artefactos, canales nativos y gateway multi-tenant completo, CLI y distribución validada en seis plataformas.
+Completar extracción de servicios, resolución autorizada de referencias a secretos y aprovisionamiento de claves, compiler/contexto integrado, bundles de skills adaptados, oráculos (planificador del bucle), multimodalidad restante (capacidades por modelo, salida de medios, ejecución real; ver multimodal.md), catálogo completo de proveedores, manager/hot reload/transportes MCP restantes, bus general y administración/reconciliación de grupos/cola/pool, proof packets generales y goal runner, administración/migración completa del scheduler y triggers cron de Objective, catálogo restante de tools, Office, imágenes/artefactos, canales nativos y gateway multi-tenant completo, CLI y distribución validada en seis plataformas.
 
 Para WhatsApp QR se identificaron implementaciones Rust candidatas, entre ellas [whatsapp-rust](https://docs.rs/whatsapp-rust/0.7.0/whatsapp_rust/). No se añadió una dependencia ni se comprobó vinculación/reconexión; WhatsApp Cloud no se contabilizará como sustituto. Es una capacidad pendiente, no una imposibilidad demostrada.

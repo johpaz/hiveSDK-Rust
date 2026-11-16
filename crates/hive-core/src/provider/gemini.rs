@@ -214,6 +214,7 @@ struct Pending {
     vendor_id: Option<Value>,
 }
 pub fn request_body(request: &ModelRequest, default_max_output_tokens: u64) -> Result<Value> {
+    crate::media::ensure_user_only(&request.messages)?;
     if let Some(output) = &request.structured_output {
         output.validate()?;
     }
@@ -260,6 +261,20 @@ pub fn request_body(request: &ModelRequest, default_max_output_tokens: u64) -> R
                     parts.clone()
                 } else {
                     let mut parts = vec![];
+                    if !message.attachments.is_empty() && message.role != "user" {
+                        return Err(Error::Input(
+                            "only user messages can carry attachments".into(),
+                        ));
+                    }
+                    // Only inline data is mapped: fileData URIs belong to the Files API.
+                    for attachment in &message.attachments {
+                        let data = attachment.data.as_ref().ok_or_else(|| {
+                            Error::Input("Gemini attachments must be inline base64 data".into())
+                        })?;
+                        parts.push(
+                            json!({"inlineData":{"mimeType":attachment.media_type,"data":data}}),
+                        );
+                    }
                     if let Some(text) = &message.content {
                         parts.push(json!({"text":text}));
                     }

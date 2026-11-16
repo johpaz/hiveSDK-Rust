@@ -596,6 +596,16 @@ async fn copied_credentials_protect_rest_ws_and_login_without_leaking_hashes() {
             .await
             .unwrap()
             .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/not-implemented"))
+            .bearer_auth(&app.token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         501
     );
     app.shutdown.cancel();

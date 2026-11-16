@@ -30,6 +30,16 @@ export class DurableQueue {
   group(groupId) { return this.#call('group_get', { group_id: groupId }); }
   synthesizeGroup(groupId) { return this.#call('group_synthesize', { group_id: groupId }); }
   cancelGroup(groupId) { return this.#call('group_cancel', { group_id: groupId }); }
+  listJobs(filter = {}, { limit = 50, cursor = null } = {}) { return this.#call('jobs_list', { filter, limit, cursor }); }
+  retryJob(jobId, { force = false } = {}) { return this.#call('job_retry', { job_id: jobId, force }); }
+  cancelJobs(filter) { return this.#call('jobs_cancel_where', { filter }); }
+  purgeJobs(filter, finishedBefore, { limit = 100 } = {}) { return this.#call('jobs_purge', { filter, finished_before: finishedBefore, limit }); }
+  events({ after = 0, limit = 100 } = {}) { return this.#call('events', { after, limit }); }
+  pruneEvents(upTo) { return this.#call('events_prune', { up_to: upTo }); }
+  createGoal(goalId, spec) { return this.#call('goal_create', { goal_id: goalId, spec }); }
+  goal(goalId) { return this.#call('goal_get', { goal_id: goalId }); }
+  tickGoal(goalId) { return this.#call('goal_tick', { goal_id: goalId }); }
+  cancelGoal(goalId) { return this.#call('goal_cancel', { goal_id: goalId }); }
   groupVerificationInput(groupId, taskId) { return this.#call('group_verification_input', { group_id: groupId, task_id: taskId }); }
   recordGroupProof(groupId, taskId, verificationKey) { return this.#call('group_record_proof', { group_id: groupId, task_id: taskId, verification_key: verificationKey }); }
 

@@ -12,6 +12,7 @@ use std::{
 const QUEUES: &str = "hive_sdk_rust_queues_v1";
 const JOBS: &str = "hive_sdk_rust_jobs_v1";
 const KEYS: &str = "hive_sdk_rust_job_keys_v1";
+const EVENTS: &str = "hive_sdk_rust_events_v1";
 const PORTABLE: u64 = 9_007_199_254_740_991;
 
 fn invalid(message: &str) -> Error {
@@ -182,6 +183,12 @@ struct Meta {
     id: String,
     policy: QueuePolicy,
     sequence: u64,
+    /// Last event sequence written; events share the transaction of the change they describe.
+    #[serde(default)]
+    events: u64,
+    /// Terminal jobs removed by `purge_jobs`; they no longer count against `max_jobs`.
+    #[serde(default)]
+    purged: u64,
     slots: BTreeMap<String, Slot>,
 }
 struct Change {
@@ -305,6 +312,50 @@ enum Command {
     GroupCancel {
         group_id: String,
     },
+    JobsList {
+        #[serde(default)]
+        filter: admin::JobFilter,
+        #[serde(default = "list_limit")]
+        limit: usize,
+        #[serde(default)]
+        cursor: Option<String>,
+    },
+    JobRetry {
+        job_id: String,
+        #[serde(default)]
+        force: bool,
+    },
+    JobsCancelWhere {
+        filter: admin::JobFilter,
+    },
+    Events {
+        #[serde(default)]
+        after: u64,
+        #[serde(default = "list_limit")]
+        limit: usize,
+    },
+    JobsPurge {
+        filter: admin::JobFilter,
+        finished_before: u64,
+        #[serde(default = "list_limit")]
+        limit: usize,
+    },
+    EventsPrune {
+        up_to: u64,
+    },
+    GoalCreate {
+        goal_id: String,
+        spec: GoalSpec,
+    },
+    GoalGet {
+        goal_id: String,
+    },
+    GoalTick {
+        goal_id: String,
+    },
+    GoalCancel {
+        goal_id: String,
+    },
     GroupVerificationInput {
         group_id: String,
         task_id: String,
@@ -390,6 +441,13 @@ impl DurableQueue {
     }
     fn save(&self, meta: &mut Meta, job: &mut Job, writes: &mut Vec<ColOp>) -> Result<()> {
         let previous = job.revision;
+        // Every status change is an event in the same atomic batch; heartbeats are not.
+        let before = if previous == 0 { None } else { meta.slots.get(&job.id).map(|slot| slot.status) };
+        if before != Some(job.status) {
+            let subject = json!({"job_id":job.id,"kind":job.input.kind,"lane":job.input.lane,"status":job.status,
+                "objective_id":job.input.objective_id,"attempts":job.attempts});
+            self.emit(meta, writes, "job.status", subject)?;
+        }
         job.revision = previous
             .checked_add(1)
             .filter(|v| *v <= PORTABLE)
@@ -458,6 +516,8 @@ impl DurableQueue {
                 id: self.id.clone(),
                 policy: policy.clone(),
                 sequence: 0,
+                events: 0,
+                purged: 0,
                 slots: BTreeMap::new(),
             };
             match self.store.db.col_batch(&[ColOp::Put {
@@ -516,7 +576,7 @@ impl DurableQueue {
             }
             return Change::value(job);
         }
-        if meta.sequence >= u64::from(meta.policy.max_jobs) {
+        if meta.sequence - meta.purged >= u64::from(meta.policy.max_jobs) {
             return Err(state("QUEUE_RETENTION_LIMIT"));
         }
         if let Some(id) = &input.objective_id {
@@ -946,7 +1006,7 @@ impl DurableQueue {
                 .or_default() += 1;
         }
         Ok(
-            json!({"id":self.id,"policy":meta.policy,"retained_jobs":meta.sequence,"active_counts":counts}),
+            json!({"id":self.id,"policy":meta.policy,"retained_jobs":meta.sequence - meta.purged,"active_counts":counts}),
         )
     }
     pub fn dispatch(&self, command: Value) -> Result<Value> {
@@ -983,6 +1043,16 @@ impl DurableQueue {
                 serde_json::to_value(self.synthesize_group(&group_id)?)?
             }
             Command::GroupCancel { group_id } => self.cancel_group(&group_id)?,
+            Command::JobsList { filter, limit, cursor } => self.list_where(&filter, limit, cursor.as_deref())?,
+            Command::JobRetry { job_id, force } => serde_json::to_value(self.retry_failed(&job_id, force)?)?,
+            Command::JobsCancelWhere { filter } => self.cancel_where(&filter)?,
+            Command::Events { after, limit } => self.events(after, limit)?,
+            Command::JobsPurge { filter, finished_before, limit } => self.purge_jobs(&filter, finished_before, limit)?,
+            Command::EventsPrune { up_to } => self.prune_events(up_to)?,
+            Command::GoalCreate { goal_id, spec } => self.create_goal(&goal_id, spec)?,
+            Command::GoalGet { goal_id } => self.goal(&goal_id)?,
+            Command::GoalTick { goal_id } => self.goal_tick(&goal_id)?,
+            Command::GoalCancel { goal_id } => self.cancel_goal(&goal_id)?,
             Command::GroupVerificationInput { group_id, task_id } => {
                 self.group_verification_input(&group_id, &task_id)?
             }
@@ -1030,6 +1100,14 @@ pub use worker::{JobExecutor, WorkerPool};
 
 mod groups;
 pub use groups::{GroupSpec, SpecialistTask};
+mod admin;
+#[cfg(test)]
+mod admin_tests;
+mod goals;
+#[cfg(test)]
+mod goal_tests;
+pub use admin::JobFilter;
+pub use goals::GoalSpec;
 
 #[cfg(feature = "scheduler")]
 mod schedules;

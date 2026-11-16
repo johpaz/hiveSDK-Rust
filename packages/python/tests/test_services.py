@@ -54,3 +54,27 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 if agent: agent.close()
                 await store.close_async()
+
+
+class BundledSkillTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bundled_skills_list_and_import_once_their_sdk_tools_are_in_the_catalog(self):
+        from hive_sdk import NativeTools
+        with tempfile.TemporaryDirectory() as directory:
+            store = await SessionStore.open(str(Path(directory) / 'db'), tenant_id='first')
+            try:
+                listed = await store.services.bundled_skills()
+                self.assertEqual(sorted(s['name'] for s in listed), ['obscura_browser', 'office_document_manager', 'pdf_report_writer'])
+                self.assertEqual((await store.services.collection('skills').list())['items'], [])
+                with self.assertRaisesRegex(Exception, 'unknown bundled skill'):
+                    await store.services.import_bundled_skill('nope')
+                with self.assertRaisesRegex(Exception, 'reference not found'):
+                    await store.services.import_bundled_skill('pdf_report_writer')
+                tools = NativeTools({'root': directory, 'office': {}, 'obscura': {'allow_evaluate': True, 'allow_credentials': True}})
+                for d in await tools.definitions():
+                    await store.services.collection('tools').create(d['name'], {'name': d['name'], 'description': d['description'], 'parameters': d['parameters']})
+                for skill in listed:
+                    self.assertEqual((await store.services.import_bundled_skill(skill['name']))['id'], skill['name'])
+                browser = (await store.services.collection('skills').get('obscura_browser'))['data']
+                self.assertTrue(any('Chromium' in rule for rule in browser['rules']))
+            finally:
+                await store.close_async()

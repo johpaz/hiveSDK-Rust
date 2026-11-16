@@ -6,13 +6,17 @@ Motor de agentes en Rust con APIs para JavaScript/TypeScript y Python. Proyecto 
 
 ## Qué funciona hoy
 
+- [Secretos embebidos](docs/embedded-secrets.md): vault por tenant con cifrado autenticado, CAS y rotación atómica; claves explícitas del host y revelación separada de los metadatos.
+- [Tools nativas](docs/native-tools.md): archivos bajo raíz, comandos permitidos con timeout/cancelación y web GET/búsqueda opcionales, con ejecutores Rust para Node/Python.
+
 - [Cola durable y pool de ejecutores Rust](docs/durable-queue.md), opcionales: prioridad/FIFO por lane, idempotencia, leases y fencing, reintentos seguros, cancelación cooperativa y claims atómicos con presupuesto raíz. Callbacks Node/Python e intercambio con recuperación tras salida abrupta.
 - [Delegación durable a especialistas](docs/durable-delegation.md): grupos atómicos, sesiones estables, síntesis única y pruebas de aceptación ligadas al resultado, con APIs Node/Python.
 - [Gateway con delegación durable](docs/gateway-durable-delegation.md): consultas paralelas de texto, objetivo compartido persistente y una continuación del coordinador con fallos/certeza explícitos.
 - [Scheduler embebido](docs/native-scheduler.md): fechas, intervalos y cron nativo, publicación atómica sobre la cola, límites y sondeo optativo en Rust/Node/Python.
 - [Ampliación de paridad funcional con TS](docs/parity.md), con referencia por hashes y exclusión de gestión de proyectos. Sigue incompleta; la matriz separa capacidades parciales y pendientes.
 - [Servicios de catálogo embebidos](docs/embedded-services.md): CRUD de diez tipos de entidad, revisiones optimistas, ámbitos por tenant, búsqueda BM25 e importación YAML de skills. Ocho tools nativas de memoria/descubrimiento, disponibles en npm y Python.
-- [Navegador CDP opcional](docs/native-browser.md): cliente Rust para conectar a una página existente, navegar, interactuar, extraer texto y capturar imágenes; sin controlador Node/Bun. La validación con Chromium real sigue pendiente por restricciones del sandbox.
+- [Navegador Obscura](docs/obscura.md): el navegador del SDK es Obscura (sin Chromium ni Playwright), 31 herramientas `obscura_*`; probado contra un servidor MCP falso, binario real pendiente.
+- [Cliente CDP opcional](docs/native-browser.md): cliente Rust para conectar a una página existente, navegar, interactuar, extraer texto y capturar imágenes; sin controlador Node/Bun. Es un cliente de bajo nivel para una página que el host ya controla; el navegador de las herramientas es Obscura.
 - MCP resources/list, resources/read, prompts/list y prompts/get, incluso en servidores sin tools; exposición explícita en npm y Python.
 - Máquina de estados Rust para conversación → modelo → tools → respuesta.
 - Handles Rust para agentes en memoria y sesiones durables, sin snapshots completos por transición del ciclo. Los checkpoints durables usan workers con espera al cancelar. [Memoria](docs/engine-handles.md) y [sesiones durables](docs/durable-handles.md), con mediciones locales.

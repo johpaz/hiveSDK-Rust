@@ -3,6 +3,8 @@ export class CatalogServices {
   #store;
   constructor(store) { this.#store = store; }
   collection(kind) { return new CatalogCollection(this.#store, kind); }
+  bundledSkills() { return this.#store._dispatchAsync({ op: 'services', command: { op: 'bundled_skills' } }); }
+  importBundledSkill(name) { return this.#store._dispatchAsync({ op: 'services', command: { op: 'import_bundled_skill', name } }); }
   importSkill(path) { return this.#store._dispatchAsync({ op: 'services', command: { op: 'import_skill', path } }); }
   async createTools() {
     const definitions = await this.#store._dispatchAsync({ op: 'services', command: { op: 'tool_definitions' } });

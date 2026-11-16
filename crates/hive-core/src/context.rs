@@ -1,8 +1,8 @@
 //! Neutral UTF-8 bytes and BPE estimates over the explicitly selected context.
 use crate::memory::ContextUnit;
 use crate::{
-    ContextOverflow, ContextReport, Engine, InputTokenFraming, Message, ModelRequest, Result,
-    StopReason, Tool,
+    ContextOverflow, ContextReport, Engine, Error, InputTokenFraming, Message, ModelRequest,
+    Result, StopReason, Tool,
 };
 use serde::Serialize;
 use serde::ser::SerializeSeq;
@@ -63,13 +63,47 @@ impl Serialize for SelectedMessages<'_> {
     }
 }
 
-fn token_text(input: &Input<'_>, framing: InputTokenFraming) -> Result<String> {
+/// Same JSON as `Input`, over owned messages whose attachment bytes were removed.
+#[derive(Serialize)]
+struct StrippedInput<'a> {
+    model: &'a str,
+    messages: &'a [Message],
+    tools: &'a [Tool],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structured_output: Option<&'a crate::StructuredOutput>,
+}
+
+/// Text to run through the tokenizer plus the number of attachments it omits.
+/// Attachment payloads are removed (URLs stay) so megabytes of base64 neither
+/// slow the tokenizer nor masquerade as text; callers add a fixed allowance.
+fn token_text(input: &Input<'_>, framing: InputTokenFraming) -> Result<(String, u64)> {
+    let mut attachments = 0u64;
+    let messages: Vec<Message> = input
+        .messages
+        .iter()
+        .map(|message| {
+            let mut message = message.clone();
+            for attachment in &mut message.attachments {
+                attachments += 1;
+                if attachment.data.is_some() {
+                    attachment.data = Some(String::new());
+                }
+            }
+            message
+        })
+        .collect();
     if framing == InputTokenFraming::NeutralJson {
-        return Ok(serde_json::to_string(input)?);
+        let stripped = StrippedInput {
+            model: input.model,
+            messages: &messages,
+            tools: input.tools,
+            structured_output: input.structured_output,
+        };
+        return Ok((serde_json::to_string(&stripped)?, attachments));
     }
     let request = ModelRequest {
         model: input.model.to_owned(),
-        messages: input.messages.iter().cloned().collect(),
+        messages,
         tools: input.tools.to_vec(),
         max_output_tokens: Some(1),
         deadline_unix_ms: None,
@@ -77,7 +111,7 @@ fn token_text(input: &Input<'_>, framing: InputTokenFraming) -> Result<String> {
         structured_output: input.structured_output.cloned(),
     };
     let mut body = match framing {
-        InputTokenFraming::OpenaiChatJson => crate::provider::request_body(&request),
+        InputTokenFraming::OpenaiChatJson => crate::provider::request_body(&request)?,
         InputTokenFraming::AnthropicMessagesJson => {
             crate::provider::anthropic::request_body(&request, 1)?
         }
@@ -100,7 +134,7 @@ fn token_text(input: &Input<'_>, framing: InputTokenFraming) -> Result<String> {
             object.remove("generationConfig");
         }
     }
-    Ok(serde_json::to_string(&body)?)
+    Ok((serde_json::to_string(&body)?, attachments))
 }
 
 impl Engine {
@@ -149,8 +183,20 @@ impl Engine {
                     tools: &self.tools,
                     structured_output: self.policy.structured_output.as_ref(),
                 };
-                let estimate =
-                    crate::tokens::estimate(&token_text(&input, budget.framing)?, budget)?;
+                let (text, attachments) = token_text(&input, budget.framing)?;
+                let mut estimate = crate::tokens::estimate(&text, budget)?;
+                if attachments > 0 {
+                    let allowance = budget
+                        .attachment_tokens
+                        .and_then(|each| each.checked_mul(attachments))
+                        .ok_or_else(|| {
+                            Error::Input(
+                                "attachments need a valid attachment_tokens allowance".into(),
+                            )
+                        })?;
+                    estimate.overhead_tokens = estimate.overhead_tokens.saturating_add(allowance);
+                    estimate.total_tokens = estimate.total_tokens.saturating_add(allowance);
+                }
                 tokens_fit = estimate.total_tokens <= budget.max_tokens;
                 total_fits = budget.max_total_tokens.is_none_or(|limit| {
                     estimate.total_tokens <= limit.saturating_sub(self.stats.charged_input_tokens)

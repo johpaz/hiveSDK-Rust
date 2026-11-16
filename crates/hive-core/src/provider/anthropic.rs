@@ -1,6 +1,6 @@
 //! Native Messages API subset: text and client-side tools. No automatic continuations.
 use super::{HttpProvider, ModelEvent, ModelStream, OpenAiConfig, Protocol};
-use crate::{Error, ModelReply, ModelRequest, Result, ToolCall, Usage};
+use crate::{Attachment, AttachmentKind, Error, ModelReply, ModelRequest, Result, ToolCall, Usage};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{collections::HashSet, sync::Arc};
@@ -82,7 +82,48 @@ fn append(messages: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
     }
 }
 
+/// Images take base64 or URL sources; documents are limited to PDF. The Messages
+/// API has no audio input, so audio is rejected rather than approximated.
+fn media_block(attachment: &Attachment) -> Result<Value> {
+    let source = match (&attachment.data, &attachment.url) {
+        (Some(data), _) => {
+            json!({"type":"base64","media_type":attachment.media_type,"data":data})
+        }
+        (None, Some(url)) => json!({"type":"url","url":url}),
+        _ => return Err(Error::Input("attachment needs data or url".into())),
+    };
+    match attachment.kind {
+        AttachmentKind::Image => {
+            if !matches!(
+                attachment.media_type.as_str(),
+                "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+            ) {
+                return Err(Error::Input(
+                    "Anthropic images must be jpeg, png, gif or webp".into(),
+                ));
+            }
+            Ok(json!({"type":"image","source":source}))
+        }
+        AttachmentKind::Document => {
+            if attachment.media_type != "application/pdf" {
+                return Err(Error::Input(
+                    "Anthropic documents must be application/pdf".into(),
+                ));
+            }
+            let mut block = json!({"type":"document","source":source});
+            if let Some(name) = &attachment.name {
+                block["title"] = json!(name);
+            }
+            Ok(block)
+        }
+        AttachmentKind::Audio => Err(Error::Input(
+            "Anthropic Messages does not accept audio".into(),
+        )),
+    }
+}
+
 pub fn request_body(request: &ModelRequest, default_max_output_tokens: u64) -> Result<Value> {
+    crate::media::ensure_user_only(&request.messages)?;
     if let Some(output) = &request.structured_output {
         output.validate()?;
     }
@@ -127,6 +168,15 @@ pub fn request_body(request: &ModelRequest, default_max_output_tokens: u64) -> R
                     ));
                 }
                 let mut blocks = vec![];
+                if !message.attachments.is_empty() && message.role != "user" {
+                    return Err(Error::Input(
+                        "only user messages can carry attachments".into(),
+                    ));
+                }
+                // Media blocks lead the text, which is the order the API recommends.
+                for attachment in &message.attachments {
+                    blocks.push(media_block(attachment)?);
+                }
                 if let Some(text) = &message.content {
                     blocks.push(json!({"type":"text","text":text}));
                 }

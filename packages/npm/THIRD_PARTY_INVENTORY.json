@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scope": "Conservative all-target workspace dependency inventory, including build/dev dependencies; not a list of code linked in an individual binary. License expressions are preserved, not selected or reinterpreted.",
-  "cargo_lock_sha256": "7c8fb3c034fe0cecff9dc01df4f793c29e9239acea1775e0e4f573261cfbef75",
+  "cargo_lock_sha256": "728902d47740a7f4adcd1354d7ff0f7831c6ec2be2c1c94390e2a952e8742a96",
   "upstream_sources_sha256": "0a035ba07b0478e6574068151152e02d5496e08cff035f2822da0022b45589c9",
   "status": "incomplete",
   "pending": [
@@ -42,6 +42,38 @@
     }
   ],
   "packages": [
+    {
+      "name": "adler2",
+      "version": "2.0.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa",
+      "declared_license": "0BSD OR MIT OR Apache-2.0",
+      "repository": "https://github.com/oyvindln/adler2",
+      "notices": [
+        {
+          "sha256": "861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE-0BSD"
+          }
+        },
+        {
+          "sha256": "8ada45cd9f843acf64e4722ae262c622a2b3b3007c7310ef36ac1061a30f6adb",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE-APACHE"
+          }
+        },
+        {
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE-MIT"
+          }
+        }
+      ],
+      "pending": []
+    },
     {
       "name": "aes",
       "version": "0.8.4",
@@ -4185,6 +4217,45 @@
           "origin": {
             "kind": "crate_archive",
             "path": "LICENSE.md"
+          }
+        }
+      ],
+      "pending": []
+    },
+    {
+      "name": "miniz_oxide",
+      "version": "0.9.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c",
+      "declared_license": "MIT OR Zlib OR Apache-2.0",
+      "repository": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide",
+      "notices": [
+        {
+          "sha256": "4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE"
+          }
+        },
+        {
+          "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE-APACHE.md"
+          }
+        },
+        {
+          "sha256": "799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE-MIT.md"
+          }
+        },
+        {
+          "sha256": "0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "LICENSE-ZLIB.md"
           }
         }
       ],
@@ -10338,6 +10409,10 @@
       "file": "third_party/notices/09785877275ffada6c371b652a30e95c26b435126fc0fc62f1bc2d72171f80a4.txt"
     },
     {
+      "sha256": "0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39",
+      "file": "third_party/notices/0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39.txt"
+    },
+    {
       "sha256": "0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38",
       "file": "third_party/notices/0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38.txt"
     },
@@ -10622,6 +10697,10 @@
       "file": "third_party/notices/405776d2ef79101bfa67711bda920ee1b4a762c64f61cc43b37b2c3d2b2ed9a2.txt"
     },
     {
+      "sha256": "4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b",
+      "file": "third_party/notices/4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b.txt"
+    },
+    {
       "sha256": "418cb499b436128d653d79941333a5437b7be2ea9213dcc2f04d15d5d2c51d86",
       "file": "third_party/notices/418cb499b436128d653d79941333a5437b7be2ea9213dcc2f04d15d5d2c51d86.txt"
     },
@@ -10862,6 +10941,10 @@
       "file": "third_party/notices/78ebc2ea2a1cec9cbec2e1a6fc15e73474fe22bdad7575518e7f4628651d49c4.txt"
     },
     {
+      "sha256": "799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d",
+      "file": "third_party/notices/799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d.txt"
+    },
+    {
       "sha256": "7abd9b6960dcf7d4d0a48606a5b71bfe37d472db68d70637f3a58a56785f1621",
       "file": "third_party/notices/7abd9b6960dcf7d4d0a48606a5b71bfe37d472db68d70637f3a58a56785f1621.txt"
     },
@@ -10904,6 +10987,10 @@
     {
       "sha256": "84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151",
       "file": "third_party/notices/84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151.txt"
+    },
+    {
+      "sha256": "861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17",
+      "file": "third_party/notices/861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17.txt"
     },
     {
       "sha256": "8764a597675778ddfd4e25f81b08a05dbcf089ac05662df7613fe67f150e3aa2",
@@ -11418,5 +11505,5 @@
       "file": "third_party/notices/ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7.txt"
     }
   ],
-  "notices_sha256": "f29b072e8bb0e97fe8d4f3dec72b9d5d470d0682c4482132b35ce95dc787b5e4"
+  "notices_sha256": "aa248f93a993b71df2389fdd3e3c394daf4638d074a1f5ce70de0f026cea1724"
 }

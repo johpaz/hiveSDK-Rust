@@ -1,6 +1,6 @@
 //! Durable engine ownership; storage CAS and objective transactions stay in SessionStore.
 use crate::{
-    Engine, Error, Result, memory,
+    Engine, Error, Prompt, Result, memory,
     sessions::{OperationResult, RunFrame, SessionStore},
 };
 use serde::Deserialize;
@@ -41,7 +41,7 @@ enum Command {
         plan: Option<memory::ContextPlan>,
     },
     BeginRun {
-        prompt: String,
+        prompt: Prompt,
         #[serde(default)]
         objective_depth: u32,
         #[serde(default)]
@@ -189,7 +189,7 @@ impl DurableEngineHandle {
                 if state.active {
                     return Err(Error::SessionInterrupted);
                 }
-                store.begin_run_with_objective(
+                store.begin_run_with_input(
                     &self.agent,
                     &self.session,
                     state.revision,

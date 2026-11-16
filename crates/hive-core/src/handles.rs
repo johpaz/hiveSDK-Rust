@@ -1,5 +1,5 @@
 //! Owned in-memory engine. Host callbacks never execute while its lock is held.
-use crate::{Action, Engine, Error, LoopPolicy, Message, ModelReply, Result, Tool, memory};
+use crate::{Action, Engine, Error, LoopPolicy, Message, ModelReply, Prompt, Result, Tool, memory};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -34,7 +34,7 @@ enum Config {
 enum Operation {
     Frame,
     Start {
-        prompt: String,
+        prompt: Prompt,
     },
     Reply {
         reply: ModelReply,
@@ -136,7 +136,7 @@ impl EngineHandle {
                     ));
                 }
                 let mut working = state.committed.clone();
-                working.start(prompt)?;
+                working.start_prompt(prompt)?;
                 state.working = Some(working);
                 frame(state.working.as_ref().expect("just started"))
             }

@@ -24,6 +24,29 @@ TokenEncoding = Literal['cl100k_base', 'o200k_base']
 InputTokenFraming = Literal['neutral_json', 'openai_chat_json', 'anthropic_messages_json', 'gemini_generate_content_json']
 
 
+AttachmentKind = Literal['image', 'audio', 'document']
+
+
+class _AttachmentBase(TypedDict):
+    kind: AttachmentKind
+    media_type: str
+
+
+class Attachment(_AttachmentBase, total=False):
+    """Inline base64 ``data`` or a public ``url`` (exactly one)."""
+    data: str
+    url: str
+    name: str
+
+
+class PromptParts(TypedDict, total=False):
+    text: str
+    attachments: list[Attachment]
+
+
+Prompt = str | PromptParts
+
+
 class _InputTokenBudgetBase(TypedDict):
     encoding: TokenEncoding
     max_tokens: int
@@ -34,6 +57,7 @@ class InputTokenBudget(_InputTokenBudgetBase, total=False):
     framing: InputTokenFraming
     max_total_tokens: int | None
     context_window_tokens: int | None
+    attachment_tokens: int | None
 
 
 class TokenEstimate(TypedDict):
@@ -238,14 +262,19 @@ class _NativeHttpProvider:
         return reply
 
 
+def _optional(**values: Any) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
+
+
 class OpenAICompatible(_NativeHttpProvider):
     def __init__(self, *, base_url: str = "https://api.openai.com/v1",
                  api_key: str | None = None, timeout_ms: int = 60_000,
                  max_response_bytes: int = 16 * 1024 * 1024,
-                 output_token_parameter: str = "max_completion_tokens"):
+                 output_token_parameter: str = "max_completion_tokens",
+                 resilience: dict[str, Any] | None = None):
         super().__init__({"kind": "openai_compatible", "base_url": base_url, "api_key": api_key,
             "timeout_ms": timeout_ms, "max_response_bytes": max_response_bytes,
-            "output_token_parameter": output_token_parameter})
+            "output_token_parameter": output_token_parameter, **_optional(resilience=resilience)})
 
 
 class HiveAgents(_NativeHttpProvider):
@@ -257,23 +286,38 @@ class HiveAgents(_NativeHttpProvider):
                           'context_window': context_window})
 
 
+class PresetProvider(_NativeHttpProvider):
+    """A hosted provider by id (see docs/providers.md). Protocol, base URL and wire
+    profile come from the preset; anything given here wins over it."""
+
+    def __init__(self, preset: str, *, api_key: str | None = None, base_url: str | None = None,
+                 timeout_ms: int | None = None, max_response_bytes: int | None = None,
+                 profile: dict[str, Any] | None = None, resilience: dict[str, Any] | None = None):
+        given = {'api_key': api_key, 'base_url': base_url, 'timeout_ms': timeout_ms,
+                 'max_response_bytes': max_response_bytes, 'profile': profile, 'resilience': resilience}
+        super().__init__({'preset': preset, **{key: value for key, value in given.items() if value is not None}})
+
+
 class Anthropic(_NativeHttpProvider):
     def __init__(self, *, base_url: str = "https://api.anthropic.com/v1",
                  api_key: str | None = None, timeout_ms: int = 60_000,
                  max_response_bytes: int = 16 * 1024 * 1024,
-                 api_version: str = "2026-10-21", default_max_output_tokens: int = 4096):
+                 api_version: str = "2026-10-21", default_max_output_tokens: int = 4096,
+                 resilience: dict[str, Any] | None = None):
         super().__init__({"kind": "anthropic", "base_url": base_url, "api_key": api_key,
             "timeout_ms": timeout_ms, "max_response_bytes": max_response_bytes,
-            "api_version": api_version, "default_max_output_tokens": default_max_output_tokens})
+            "api_version": api_version, "default_max_output_tokens": default_max_output_tokens,
+            **_optional(resilience=resilience)})
 
 
 class Gemini(_NativeHttpProvider):
     def __init__(self, *, base_url: str = "https://generativelanguage.googleapis.com/v1beta",
                  api_key: str | None = None, timeout_ms: int = 60_000,
-                 max_response_bytes: int = 16 * 1024 * 1024, default_max_output_tokens: int = 4096):
+                 max_response_bytes: int = 16 * 1024 * 1024, default_max_output_tokens: int = 4096,
+                 resilience: dict[str, Any] | None = None):
         super().__init__({"kind": "gemini", "base_url": base_url, "api_key": api_key,
             "timeout_ms": timeout_ms, "max_response_bytes": max_response_bytes,
-            "default_max_output_tokens": default_max_output_tokens})
+            "default_max_output_tokens": default_max_output_tokens, **_optional(resilience=resilience)})
 
 
 async def _invoke(callback: Callable, *args: Any) -> Any:
@@ -295,6 +339,11 @@ class SessionStore:
     def services(self):
         from .services import CatalogServices
         return CatalogServices(self)
+
+    def artifacts(self, root: str):
+        """Tenant-scoped artifact store with its files under ``root``."""
+        from .artifacts import ArtifactStore
+        return ArtifactStore(self, root)
 
     def __init__(self, path: str, *, tenant_id: str = "default"):
         self._native = _native.NativeSessionStore(path, tenant_id)
@@ -589,7 +638,7 @@ class Agent:
         try: return await objective.summarize(key, value, callback, cancel_event=cancel_event, _track_cancel=track)
         finally: self._busy = False; self._summary_cancel = None
 
-    async def run(self, prompt: str, *, cancel_event=None) -> dict[str, Any]:
+    async def run(self, prompt: Prompt, *, cancel_event=None) -> dict[str, Any]:
         return await self._collect(self._drive(prompt, resume=False, streaming=False, external_cancel=cancel_event))
 
     async def _run_queued(self, prompt, *, store, objective_id, depth, cancel_event, resume=False, binding=None):
@@ -603,7 +652,7 @@ class Agent:
     async def resume(self, *, cancel_event=None) -> dict[str, Any]:
         return await self._collect(self._drive(None, resume=True, streaming=False, external_cancel=cancel_event))
 
-    def stream(self, prompt: str, *, cancel_event=None) -> AsyncGenerator[dict[str, Any], None]:
+    def stream(self, prompt: Prompt, *, cancel_event=None) -> AsyncGenerator[dict[str, Any], None]:
         return self._drive(prompt, resume=False, streaming=True, external_cancel=cancel_event)
 
     def resume_stream(self, *, cancel_event=None) -> AsyncGenerator[dict[str, Any], None]:

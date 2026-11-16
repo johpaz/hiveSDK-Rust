@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
+pub mod artifacts;
 #[cfg(feature = "browser")]
 pub mod browser;
 mod budget;
@@ -11,9 +12,12 @@ pub mod durable_handle;
 pub mod handles;
 #[cfg(feature = "harness")]
 pub mod harness;
+pub mod image;
 pub mod mcp;
+pub mod media;
 pub mod memory;
 pub mod objective;
+pub mod oracle;
 pub mod provider;
 #[cfg(feature = "scheduler")]
 pub mod scheduler;
@@ -22,6 +26,8 @@ pub mod services;
 pub mod sessions;
 mod structured;
 mod tokens;
+#[cfg(feature = "tools")]
+pub mod tools;
 mod validation;
 pub use structured::StructuredOutput;
 
@@ -78,6 +84,7 @@ pub enum Error {
     #[error("DEADLINE_EXCEEDED: run deadline elapsed")]
     DeadlineExceeded,
 }
+pub use media::{Attachment, AttachmentKind, Prompt, PromptParts};
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +115,9 @@ pub enum ProviderState {
 pub struct Message {
     pub role: String,
     pub content: Option<String>,
+    /// Media sent with a user message; empty for every other role.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,6 +130,7 @@ impl Message {
         Self {
             role: role.into(),
             content: Some(text),
+            attachments: vec![],
             tool_calls: vec![],
             tool_call_id: None,
             provider_state: None,
@@ -184,6 +195,11 @@ pub struct InputTokenBudget {
     pub max_total_tokens: Option<u64>,
     #[serde(default)]
     pub context_window_tokens: Option<u64>,
+    /// Tokens reserved for each attachment, counted in `overhead_tokens` of the
+    /// estimate. Attachment bytes are never run through the tokenizer; a budget
+    /// without this value rejects any turn that carries attachments.
+    #[serde(default)]
+    pub attachment_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -215,7 +231,7 @@ pub struct ModelReply {
     pub usage: Option<Usage>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -424,6 +440,7 @@ impl Engine {
                     || message.content.is_none()
                     || !message.tool_calls.is_empty()
                     || message.tool_call_id.is_some()
+                    || !message.attachments.is_empty()
                     || message.provider_state.is_some()
             })
         {
@@ -464,13 +481,31 @@ impl Engine {
     }
 
     pub fn start(&mut self, prompt: String) -> Result<()> {
+        self.start_prompt(prompt)
+    }
+
+    /// Like [`Engine::start`], with optional image, audio and document attachments.
+    pub fn start_prompt(&mut self, prompt: impl Into<Prompt>) -> Result<()> {
         if !matches!(self.action, Action::Idle | Action::Complete { .. }) {
             return Err(Error::State(
                 "finish the active run before starting another".into(),
             ));
         }
+        let (prompt, attachments) = prompt.into().into_parts();
         if prompt.trim().is_empty() {
             return Err(Error::Input("prompt is empty".into()));
+        }
+        media::validate_all(&attachments)?;
+        if !attachments.is_empty()
+            && self
+                .policy
+                .input_token_budget
+                .as_ref()
+                .is_some_and(|budget| budget.attachment_tokens.is_none())
+        {
+            return Err(Error::Input(
+                "attachments need attachment_tokens in the input token budget".into(),
+            ));
         }
         let deadline = self
             .policy
@@ -488,7 +523,9 @@ impl Engine {
         self.turns = 0;
         self.stats = RunStats::default();
         self.observations.clear();
-        self.messages.push(Message::text("user", prompt));
+        let mut message = Message::text("user", prompt);
+        message.attachments = attachments;
+        self.messages.push(message);
         self.request_model()
     }
 
@@ -689,6 +726,7 @@ impl Engine {
             provider_state: reply.provider_state,
             role: "assistant".into(),
             content: reply.content.clone(),
+            attachments: vec![],
             tool_calls: reply.tool_calls.clone(),
             tool_call_id: None,
         });
@@ -749,6 +787,7 @@ impl Engine {
             provider_state: None,
             role: "tool".into(),
             content: Some(result.to_string()),
+            attachments: vec![],
             tool_calls: vec![],
             tool_call_id: Some(id.into()),
         });
@@ -794,7 +833,7 @@ enum Command {
     },
     Start {
         state: Engine,
-        prompt: String,
+        prompt: Prompt,
     },
     Reply {
         state: Engine,
@@ -855,7 +894,7 @@ pub fn dispatch(command: &str) -> Result<String> {
             engine
         }
         Command::Start { mut state, prompt } => {
-            state.start(prompt)?;
+            state.start_prompt(prompt)?;
             state
         }
         Command::Reply { mut state, reply } => {

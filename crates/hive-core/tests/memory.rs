@@ -475,6 +475,7 @@ fn summary_and_retrieved_data_are_included_in_exact_bytes_and_bpe() {
             framing: Default::default(),
             max_total_tokens: Some(20000),
             context_window_tokens: Some(20000),
+            attachment_tokens: None,
         }),
         ..Default::default()
     };

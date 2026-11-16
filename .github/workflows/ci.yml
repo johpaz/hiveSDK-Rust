@@ -55,7 +55,7 @@ jobs:
           python scripts/third-party-notices.py --check
           python -m unittest discover -s tests -p test_third_party_notices.py -q
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --locked
       - name: Per-turn objective and gateway delegation contracts
         run: |
@@ -63,7 +63,9 @@ jobs:
           cargo test -p hive-gateway-rust durable_group --locked
           cargo test -p hive-gateway-rust durable_gateway_crash --locked
       - name: Optional embedded services and native browser contracts
-        run: cargo test -p hive-agent-core --all-features --test services --test browser --locked
+        run: |
+          cargo test -p hive-agent-core --all-features --test services --test browser --test tools --locked
+          cargo test -p hive-agent-core --features services --lib services::secrets --locked
       - name: Native durable queue, worker and scheduler contracts
         run: cargo test -p hive-agent-core --features scheduler --lib harness --locked
       - run: python scripts/build-dev.py
@@ -100,6 +102,10 @@ jobs:
         env:
           PYTHONPATH: packages/python/python
         run: python tests/services-parity.py
+      - name: Cross-language encrypted vault and native filesystem
+        env:
+          PYTHONPATH: packages/python/python
+        run: python tests/secrets-parity.py
       - name: Cross-language queue crash recovery
         env:
           PYTHONPATH: packages/python/python
@@ -127,4 +133,4 @@ jobs:
           PYTHONPATH: packages/python/python
         run: python scripts/measure-objective-runtime.py
       - name: TypeScript contract
-        run: npx --yes --package typescript@5.9.3 tsc --strict --noEmit --lib ES2023,DOM packages/npm/index.d.ts
+        run: npx --yes --package typescript@5.9.3 tsc --strict --noEmit --lib ES2023,DOM --module nodenext --moduleResolution nodenext packages/npm/index.d.ts tests/types/queue-consumer.ts

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Agent, SessionStore } from '../index.mjs';
+import { Agent, NativeTools, SessionStore } from '../index.mjs';
 
 test('embedded catalog isolates tenants, fences stale writes and survives reopening', async () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'hive-catalog-'));
@@ -69,5 +69,30 @@ test('imports YAML workflow metadata and rejects missing native tool references'
     const skill = await store.services.importSkill(skillPath);
     assert.equal(skill.data.content, 'Guarda los datos.\n');
     assert.equal((await store.services.collection('skills').search('datos'))[0].record.id, 'recordar');
+  } finally { await store.closeAsync(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('bundled skills are listed without enabling anything and import once their SDK tools are in the catalog', async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'hive-bundled-skills-'));
+  const store = await SessionStore.open({ path: path.join(directory, 'db') });
+  try {
+    const listed = await store.services.bundledSkills();
+    assert.deepEqual(listed.map(skill => skill.name).sort(), ['obscura_browser', 'office_document_manager', 'pdf_report_writer']);
+    assert.ok(listed.every(skill => skill.description.length > 20 && skill.tools.length > 0));
+    assert.equal((await store.services.collection('skills').list()).items.length, 0, 'listing imports nothing');
+    await assert.rejects(store.services.importBundledSkill('nope'), /unknown bundled skill/);
+    // A skill whose tools are not in the catalog is refused, like any workflow without executors.
+    await assert.rejects(store.services.importBundledSkill('pdf_report_writer'), /reference not found/);
+    const tools = new NativeTools({ root: directory, office: {}, obscura: { allow_evaluate: true, allow_credentials: true } });
+    for (const definition of await tools.definitions()) {
+      await store.services.collection('tools').create(definition.name, { name: definition.name, description: definition.description, parameters: definition.parameters });
+    }
+    for (const skill of listed) {
+      const imported = await store.services.importBundledSkill(skill.name);
+      assert.equal(imported.id, skill.name);
+    }
+    const browser = (await store.services.collection('skills').get('obscura_browser')).data;
+    assert.match(browser.content, /Obscura/);
+    assert.ok(browser.rules.some(rule => /never launch, install, suggest or fall back to Chromium/i.test(rule)));
   } finally { await store.closeAsync(); rmSync(directory, { recursive: true, force: true }); }
 });

@@ -207,6 +207,8 @@ fn dispatch(py: Python<'_>, command: String) -> PyResult<String> {
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<NativeBrowser>()?;
     module.add_function(wrap_pyfunction!(connect_browser, module)?)?;
+    module.add_class::<NativeTools>()?;
+    module.add_class::<NativeOracle>()?;
     module.add_class::<NativeDurableEngine>()?;
     module.add_class::<NativeEngine>()?;
     module.add_class::<NativeObjective>()?;
@@ -390,6 +392,117 @@ impl NativeBrowser {
 impl Drop for NativeBrowser {
     fn drop(&mut self) {
         self.inner.cancel();
+    }
+}
+
+/// Filesystem, command and web tools behind one sandbox configuration.
+#[pyclass(frozen)]
+struct NativeTools {
+    inner: hive_agent_core::tools::NativeTools,
+    cancellation: hive_agent_core::provider::CancellationToken,
+}
+#[pymethods]
+impl NativeTools {
+    #[new]
+    fn new(config: String) -> PyResult<Self> {
+        let config =
+            serde_json::from_str(&config).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner: hive_agent_core::tools::NativeTools::from_json(config)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
+            cancellation: hive_agent_core::provider::CancellationToken::new(),
+        })
+    }
+    fn dispatch(&self, py: Python<'_>, command: String) -> PyResult<String> {
+        py.detach(|| {
+            let command = serde_json::from_str(&command)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let value = runtime()?
+                .block_on(self.inner.dispatch(command, &self.cancellation))
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            serde_json::to_string(&value).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+    fn fork(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            cancellation: hive_agent_core::provider::CancellationToken::new(),
+        }
+    }
+    fn cancel(&self) {
+        self.cancellation.cancel();
+    }
+    /// Stops the browser the `browser_*` tools started, if any.
+    fn close(&self, py: Python<'_>) -> PyResult<()> {
+        py.detach(|| {
+            runtime()?.block_on(self.inner.close());
+            Ok(())
+        })
+    }
+    fn close_now(&self) {
+        self.inner.close_now();
+    }
+}
+
+/// Opt-in decision oracle. The wrapper charges every call to an Objective.
+#[pyclass(frozen)]
+struct NativeOracle {
+    inner: Arc<hive_agent_core::oracle::Oracle>,
+    cancellation: Mutex<hive_agent_core::provider::CancellationToken>,
+}
+#[pymethods]
+impl NativeOracle {
+    #[new]
+    fn new(config: String) -> PyResult<Self> {
+        let config = serde_json::from_str(&config)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner: Arc::new(
+                hive_agent_core::oracle::Oracle::from_json(config)
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
+            ),
+            cancellation: Mutex::new(hive_agent_core::provider::CancellationToken::new()),
+        })
+    }
+    /// `{state, questions}` in, the reply JSON out.
+    fn ask(&self, py: Python<'_>, input: String) -> PyResult<String> {
+        py.detach(|| {
+            let input = serde_json::from_str(&input)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let token = self.cancellation.lock().unwrap().clone();
+            let reply = runtime()?
+                .block_on(self.inner.ask_json(input, &token))
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            serde_json::to_string(&reply).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+    fn status(&self) -> PyResult<String> {
+        let status = self
+            .inner
+            .status()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        serde_json::to_string(&status).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+    fn record_overruled(&self, reason: String) -> PyResult<bool> {
+        self.inner
+            .record_overruled(&reason)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+    fn record_agreement(&self) -> PyResult<()> {
+        self.inner
+            .record_agreement()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+    fn reset(&self) -> PyResult<()> {
+        self.inner
+            .reset()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+    /// Aborts a call in flight; later calls get a fresh token.
+    fn cancel(&self) {
+        let mut token = self.cancellation.lock().unwrap();
+        token.cancel();
+        *token = hive_agent_core::provider::CancellationToken::new();
     }
 }
 

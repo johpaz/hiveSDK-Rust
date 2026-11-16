@@ -66,8 +66,8 @@
       "id": "credentials",
       "capability": "Tenant-scoped credentials and secret backend",
       "status": "partial",
-      "notes": "Desktop backend exists; embedded catalog rejects inline credentials; shared credential service pending",
-      "rust_evidence": "crates/hive-gateway/src/config.rs",
+      "notes": "Native tenant/vault AES-GCM service, explicit host keys, metadata-only catalog references, CAS tombstones and atomic rekey; Node/Python crash/reopen exchange. Per-integration reference resolution and shared key provisioning pending.",
+      "rust_evidence": "crates/hive-core/src/services/secrets/tests.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/storage/crypto.ts",
@@ -124,8 +124,8 @@
       "id": "providers",
       "capability": "All configured TS LLM providers and capability mappings",
       "status": "partial",
-      "notes": "OpenAI-compatible, Anthropic, Gemini and HiveAgents adapters exist; full provider matrix pending",
-      "rust_evidence": "crates/hive-core/src/provider.rs",
+      "notes": "Preset catalog for the 16 reference providers with wire profiles: tool-name normalization with reverse map, schema adjustments, tool_choice/parallelism, no-tool model rejection, session header (docs/providers.md). Verified against local servers only; pending: reasoning_content round-trip, NVIDIA thinking kwargs, text tool calls, orphan tool_call sanitizing, derived max output, native Ollama protocol; retry-without-tools intentionally not implemented",
+      "rust_evidence": "crates/hive-core/src/provider/profile.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/agent/llm-client.ts",
@@ -135,9 +135,9 @@
     {
       "id": "multimodal",
       "capability": "Images/audio/document content parts in model requests",
-      "status": "pending",
-      "notes": "Current shared Message.content is text or null",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Image/audio/document attachments on user messages mapped for OpenAI chat, Anthropic Messages and Gemini with explicit rejections, fixed per-attachment token allowance and durable history (docs/multimodal.md); bodies checked against documented API shapes only, no live provider run, no model capability check, no media output",
+      "rust_evidence": "crates/hive-core/src/media.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/multimodal/types.ts"
@@ -146,9 +146,9 @@
     {
       "id": "oracle",
       "capability": "Opt-in Jev/Kev decisions and review",
-      "status": "pending",
-      "notes": "Keep disabled by default; charge all auxiliary calls to root budget",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Opt-in decision client (choice/noul, both answer spellings, strict validation, fail-open fallback, cooldown, distrust strikes) charged as auxiliary calls to the root Objective (docs/oracle.md); local-server evidence only. Pending: jev-planner loop integration (finish/parallelism/pruning/verification), automatic provider/key resolution, share flags, canvas events, persisted counters",
+      "rust_evidence": "crates/hive-core/src/oracle.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/agent/jev-decisions.ts",
@@ -193,7 +193,7 @@
       "id": "workers",
       "capability": "Rust worker pool and async delegation fan-in",
       "status": "partial",
-      "notes": "Rust WorkerPool and Node/Python callback batches support sealed groups. Local gateway task_delegate/task_delegate_group execute native specialist jobs, narrate parallel tasks and continue one coordinator checkpoint under a shared durable root. General bus, automatic specialist discovery and task revision remain pending.",
+      "notes": "Rust WorkerPool and Node/Python callback batches support sealed groups. Local gateway task_delegate/task_delegate_group execute native specialist jobs, narrate parallel tasks and continue one coordinator checkpoint under a shared durable root. General bus, automatic specialist discovery and task revision remain pending. Goal runner (plan/delegate/synthesize/review with bounded rounds, idempotent tick, uncertain-blocking, cancel) over the queue and groups: docs/goals.md; not yet evaluated with real models, queue admin (filters, explicit retry, bulk cancel), atomic event log and job purge in docs/durable-queue.md",
       "rust_evidence": "crates/hive-core/src/harness/worker.rs",
       "ts_differential_test": "scripts/compare-ts-parity.py --scenario delegation",
       "ts_sources": [
@@ -205,7 +205,7 @@
       "id": "scheduler",
       "capability": "Cron, timezone, manual execution and history",
       "status": "partial",
-      "notes": "Shared native five/six-field cron calendar, IANA zones, at/interval schedules, paused registration, atomic queue publication, explicit misfire policies, nonoverlap, limits, pagination and opt-in producer loops implemented in Rust/Node/Python. Gateway shares calendar and preserves uncertain tasks. Nine TS calendar matches plus documented wildcard-day-step correction; full gateway storage/admin migration and scheduler API parity pending.",
+      "notes": "Shared native five/six-field cron calendar, IANA zones, at/interval schedules, paused registration, atomic queue publication, explicit misfire policies, nonoverlap, limits, pagination and opt-in producer loops implemented in Rust/Node/Python. The gateway cron now runs on this kernel (cronJobs as definition, immutable fingerprinted schedules, WorkerPool jobs, taskRuns projected from the queue event log, uncertain runs never replayed, finished-job purge); see docs/native-scheduler.md. Nine TS calendar matches plus documented wildcard-day-step correction; cron triggers in the Objective API and TS scheduler API parity pending.",
       "rust_evidence": "crates/hive-core/src/harness/schedules.rs",
       "ts_differential_test": "scripts/compare-ts-parity.py --scenario scheduler",
       "ts_sources": [
@@ -227,9 +227,9 @@
     {
       "id": "filesystem_tools",
       "capability": "Bounded filesystem tools",
-      "status": "pending",
-      "notes": "Native tools and sandbox policy pending",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native fs_read/write/edit/list/glob/grep with canonical-root sandbox, atomic writes and byte caps (docs/native-tools.md); no TS differential test yet",
+      "rust_evidence": "crates/hive-core/src/tools/fs.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/tools/filesystem/index.ts"
@@ -238,9 +238,9 @@
     {
       "id": "command_tools",
       "capability": "Native command execution tools",
-      "status": "pending",
-      "notes": "No Node/Bun executor process",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native command_run: allowlisted programs, no shell, cleared env, timeout/cancel, capped output; no TS differential test yet",
+      "rust_evidence": "crates/hive-core/src/tools/command.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/tools/cli/index.ts"
@@ -250,7 +250,7 @@
       "id": "http_tools",
       "capability": "HTTP/API tools and dynamic endpoints",
       "status": "partial",
-      "notes": "Desktop native HTTP execution and catalog metadata exist; shared tools pending",
+      "notes": "Desktop native HTTP execution and catalog metadata exist; shared web_fetch (GET only) exists, generic method/body/dynamic-endpoint tool pending",
       "rust_evidence": "crates/hive-gateway/src/integrations.rs",
       "ts_differential_test": null,
       "ts_sources": [
@@ -261,9 +261,9 @@
     {
       "id": "web_search",
       "capability": "Web search and extraction tools",
-      "status": "pending",
-      "notes": "Provider adapters and response contracts pending",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native bounded web_fetch and Brave/custom search adapters; public-address DNS pinning, total timeout/cancellation. Socket contracts prepared but local run blocked by EPERM; no live provider or HTML extraction.",
+      "rust_evidence": "crates/hive-core/src/tools/web.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/tools/web/web-search.ts",
@@ -272,10 +272,10 @@
     },
     {
       "id": "browser",
-      "capability": "Native CDP navigate, evaluate, click, type, extract and screenshot",
+      "capability": "Obscura-driven browser tools (navigate, read, act, extract, forms, tabs, screenshot/pdf when supported)",
       "status": "partial",
-      "notes": "Rust and bindings implemented; local protocol tests pass; live Chromium blocked by sandbox socket syscalls",
-      "rust_evidence": "crates/hive-core/tests/browser.rs",
+      "notes": "obscura_* tools over `obscura mcp` stdio (31 by default; evaluate and cookies opt-in), allowed_hosts with final-address check, session discard on timeout/cancel/crash, binary results to the sandbox, bundled skills that forbid Chromium/Playwright/Puppeteer (docs/obscura.md). The SDK downloads the latest Obscura release into ~/.hive/bin when none is found (HTTPS from GitHub only, SHA-256 checked against the published digest, atomic install; installObscura/install_obscura to install or update). Tested against a fake MCP server and against the real Obscura 0.2.4 and 0.2.7 on Linux x64 (all 37 server tools map with identical schemas; real PNG/PDF output; SSRF block and allowlist). stealth/proxy, installer on macOS/Windows/aarch64, slow-site timeouts and macOS/Windows are unverified. The low-level CDP client (browser.rs) remains for pages the host controls",
+      "rust_evidence": "crates/hive-core/src/tools/obscura.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/tools/web/browser-service.ts"
@@ -285,7 +285,7 @@
       "id": "computer_use",
       "capability": "Native desktop input and screenshots",
       "status": "pending",
-      "notes": "No OS input backend implemented",
+      "notes": "No OS input/screenshot backend. Deferred out of phase 1: needs a platform backend per OS (X11/Wayland, Quartz, Win32) and an explicit authorization model; the browser tools cover web UIs",
       "rust_evidence": null,
       "ts_differential_test": null,
       "ts_sources": [
@@ -295,9 +295,9 @@
     {
       "id": "office",
       "capability": "Native PDF/DOCX/XLSX parsing and generation",
-      "status": "pending",
-      "notes": "Preserve TS file, row, page and execution limits",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native DOCX/XLSX/PPTX read+write and PDF text read plus styled PDF write (blocks, themes, tables, links, header/footer page numbers, real AFM metrics; poppler-verified) inside the filesystem sandbox (own bounded ZIP, strict XML, PDF scanner/extractor, miniz_oxide); styled PPTX decks (theme/master/layouts); checked against python-docx/openpyxl/python-pptx fixtures, hostile archives, LibreOffice, and poppler on PDFs from ReportLab/Chrome/LibreOffice/Ghostscript (docs/office.md); pending: OCR and encrypted PDFs, PDF layout/columns, speaker notes/images/charts, Excel dates/styles, Word headers/footnotes/comments, differential tests vs mammoth/SheetJS/pptxgenjs/pdfjs, Microsoft Office check",
+      "rust_evidence": "crates/hive-core/src/tools/office.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/tools/office/index.ts"
@@ -306,9 +306,9 @@
     {
       "id": "images_artifacts",
       "capability": "Image transforms, artifact storage and retention",
-      "status": "pending",
-      "notes": "Shared bounded store and media processing pending",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Tenant-scoped artifact store (bytes on disk, SHA-256 verified on read, explicit 7-day retention, expiry sweep) with artifact_* tools and header-only image info for PNG/JPEG/GIF/WebP (docs/artifacts.md); pending: image transforms (needs a codec), HTTP/gateway/channel delivery, per-user ownership within a tenant, MCP artifact_ref wiring",
+      "rust_evidence": "crates/hive-core/src/artifacts.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/images/index.ts",
@@ -441,9 +441,9 @@
     {
       "id": "resilience",
       "capability": "Explicit retries and circuit breakers",
-      "status": "pending",
-      "notes": "Do not retry uncertain external operations",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Opt-in provider resilience in the HTTP transport (docs/resilience.md): retries only for requests that provably were not processed (connection never opened, HTTP 429/503) with exponential equal-jitter backoff and Retry-After up to a ceiling, bounded by the call timeout/turn deadline and cancellable; timeouts, other 5xx, 4xx and partial responses are never repeated; per-provider circuit breaker that fails fast without sending and probes once after the cool-down. Rust/Node/Python tests against scripted local servers; not evaluated against real providers. Pending: shared breaker state, metrics/events of retries, retry of tool and MCP operations (deliberately not done: uncertain)",
+      "rust_evidence": "crates/hive-core/src/provider/resilience.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/resilience/index.ts"

@@ -27,7 +27,14 @@ export type InputTokenFraming = 'neutral_json' | 'openai_chat_json' | 'anthropic
 export interface InputTokenBudget {
   encoding: TokenEncoding; max_tokens: number; overhead_tokens?: number;
   framing?: InputTokenFraming; max_total_tokens?: number | null; context_window_tokens?: number | null;
+  /** Tokens reserved per attachment (added to the estimate's overhead). Required to send attachments under a token budget. */
+  attachment_tokens?: number | null;
 }
+export type AttachmentKind = 'image' | 'audio' | 'document';
+/** Inline base64 `data` or a public `url` (exactly one). Providers accept different subsets; see docs/multimodal.md. */
+export interface Attachment { kind: AttachmentKind; media_type: string; data?: string; url?: string; name?: string }
+/** A user turn: plain text, or text plus attachments (the text stays required). */
+export type Prompt = string | { text: string; attachments?: Attachment[] };
 export interface TokenEstimate { encoding: TokenEncoding; framing: InputTokenFraming; serialized_tokens: number; overhead_tokens: number; total_tokens: number }
 export interface ContextSource { start: number; end: number; sha256: string }
 export interface ContextSummary { id: string; source: ContextSource; content: string }
@@ -114,6 +121,7 @@ export interface ResolveOperation {
 export class SessionStore {
   openQueue(id?: string, policy?: QueuePolicy): Promise<DurableQueue>;
   readonly services: CatalogServices;
+  artifacts(root: string): ArtifactStore;
   openSecrets(options: { id?: string; keyId?: string; key: Uint8Array }): Promise<SecretVault>;
   static open(options: { path: string; tenantId?: string }): Promise<SessionStore>;
   constructor(options: { path: string; tenantId?: string });
@@ -133,18 +141,42 @@ export class SessionStore {
 
 export class OpenAICompatible implements Provider {
   constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number;
-    outputTokenParameter?: 'max_completion_tokens' | 'max_tokens' });
+    outputTokenParameter?: 'max_completion_tokens' | 'max_tokens'; resilience?: Resilience });
+  complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
+  stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
+}
+export type ProviderPreset = 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'kimi'
+  | 'nvidia' | 'qwen' | 'minimax' | 'opencode-go' | 'hiveagents' | 'z-ai' | 'modelscope' | 'ollama';
+/** Body adjustments for an OpenAI-compatible provider. Presets fill these in; see docs/providers.md. */
+export interface OpenAiProfile {
+  normalize_tool_names?: boolean; ensure_array_items?: boolean; strip_additional_properties?: boolean;
+  parallel_tool_calls?: boolean | null; tool_choice?: string | null;
+  no_tool_models?: string[]; no_tool_r1_models?: boolean;
+  session_header?: string | null; user_agent?: string | null;
+}
+/**
+ * Explicit retries and a circuit breaker for a provider's HTTP calls; off unless given.
+ * Only a request that provably was not processed is retried (connection never opened, HTTP 429/503);
+ * timeouts, other errors and anything that began to arrive are never repeated. Retries cost no extra
+ * model call or budget and stay inside the call timeout and turn deadline.
+ */
+export interface Resilience {
+  retry?: { /** Total tries incl. the first, 1..5 (default 1 = none). */ max_attempts?: number; base_delay_ms?: number; /** Also the longest Retry-After honoured. */ max_delay_ms?: number };
+  circuit_breaker?: { failure_threshold?: number; cooldown_ms?: number };
+}
+export class PresetProvider implements Provider {
+  constructor(preset: ProviderPreset, options?: { apiKey?: string; baseUrl?: string; timeoutMs?: number; maxResponseBytes?: number; profile?: OpenAiProfile; resilience?: Resilience });
   complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
   stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
 }
 export class Anthropic implements Provider {
   constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number;
-    apiVersion?: string; defaultMaxOutputTokens?: number });
+    apiVersion?: string; defaultMaxOutputTokens?: number; resilience?: Resilience });
   complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
   stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
 }
 export class Gemini implements Provider {
-  constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number; defaultMaxOutputTokens?: number });
+  constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number; defaultMaxOutputTokens?: number; resilience?: Resilience });
   complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
   stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
 }
@@ -282,9 +314,9 @@ export class Agent {
   setContextPlan(plan: ContextPlan | null): void;
   setContextPlanAsync(plan: ContextPlan | null): Promise<void>;
   summarize(key: string, source: ContextSource, callback: SummaryCallback, options?: RunOptions & { objective?: Objective }): Promise<SummaryResult>;
-  run(prompt: string, options?: RunOptions): Promise<RunResult>;
+  run(prompt: Prompt, options?: RunOptions): Promise<RunResult>;
   resume(options?: RunOptions): Promise<RunResult>;
-  stream(prompt: string, options?: RunOptions): AsyncGenerator<AgentStreamEvent, void, unknown>;
+  stream(prompt: Prompt, options?: RunOptions): AsyncGenerator<AgentStreamEvent, void, unknown>;
   resumeStream(options?: RunOptions): AsyncGenerator<AgentStreamEvent, void, unknown>;
   cancel(): boolean;
   close(): void;
@@ -326,6 +358,10 @@ export interface CatalogCollection<K extends EntityKind> {
 export class CatalogServices {
   constructor(store: SessionStore);
   importSkill(path: string): Promise<CatalogRecord<'skills'>>;
+  /** Skills that ship with the SDK (obscura_browser, office_document_manager, pdf_report_writer). Listing enables nothing. */
+  bundledSkills(): Promise<{ name: string; description: string; version: string; tools: string[] }[]>;
+  /** Import one bundled skill into the catalog by name. Its tools are the SDK's own (obscura_*, office_*). */
+  importBundledSkill(name: string): Promise<CatalogRecord<'skills'>>;
   createTools(): Promise<Tool[]>;
   collection<K extends EntityKind>(kind: K): CatalogCollection<K>;
 }
@@ -342,6 +378,104 @@ export class Browser {
   screenshot(): Promise<{ data: string }>;
   cancel(): void;
   close(): Promise<void>;
+}
+
+export interface CommandPolicy { allowed_programs: string[]; env?: Record<string, string>; max_timeout_ms?: number }
+export type SearchProvider =
+  | { kind: 'brave'; api_key: string; endpoint?: string }
+  | { kind: 'custom'; endpoint: string; query_param: string; count_param?: string; headers?: Record<string, string> };
+export interface WebPolicy { allow_private_hosts?: boolean; allowed_hosts?: string[]; timeout_ms?: number; search?: SearchProvider }
+/** Limits for the office_* tools; they exist only when this is configured. See docs/office.md. */
+export interface OfficePolicy { max_input_bytes?: number; max_sheets?: number; max_rows_per_sheet?: number; timeout_ms?: number }
+/** Policy for the obscura_* browser tools (the Obscura headless browser); they exist only when this is configured. See docs/obscura.md. */
+export interface ObscuraPolicy {
+  /** Obscura binary; otherwise OBSCURA_PATH, then `obscura` on PATH, then ~/.hive/bin and ~/.hivecode/bin. */
+  executable?: string;
+  stealth?: boolean; proxy?: string; user_agent?: string;
+  /** Let pages reach localhost and private networks. Obscura blocks them by default. */
+  allow_private_network?: boolean;
+  /** When non-empty, pages may only be on these exact hosts. */
+  allowed_hosts?: string[];
+  /** Offer obscura_evaluate (arbitrary page JavaScript). Off by default. */
+  allow_evaluate?: boolean;
+  /** Offer the cookie and storage-state tools, which expose session secrets. Off by default. */
+  allow_credentials?: boolean;
+  /** Download the latest Obscura when none is found (default true; also off when HIVE_OBSCURA_AUTO_INSTALL is 0 or false). An explicit executable/OBSCURA_PATH that is missing is never replaced by a download. */
+  auto_install?: boolean;
+  /** Absolute directory for a downloaded Obscura. Default ~/.hive/bin, shared with Hive. */
+  install_dir?: string;
+  startup_timeout_ms?: number; call_timeout_ms?: number;
+}
+export interface NativeToolsConfig {
+  /** Existing directory that every filesystem path and command cwd must stay inside. */
+  root: string;
+  max_read_bytes?: number;
+  max_write_bytes?: number;
+  max_output_bytes?: number;
+  /** Enables command_run for these bare program names. Disabled when omitted. */
+  command?: CommandPolicy;
+  /** Enables web_fetch (and web_search when `search` is set). Disabled when omitted. */
+  web?: WebPolicy;
+  /** Enables office_read/write_docx, _xlsx and _pptx inside the root. Disabled when omitted. */
+  office?: OfficePolicy;
+  /** Enables the obscura_* browser tools. Disabled when omitted. */
+  obscura?: ObscuraPolicy;
+}
+export interface NativeToolDefinition extends ToolDefinition { allow_repeated_results: boolean }
+export interface ExecutableTool extends NativeToolDefinition { execute(arguments: Record<string, Json>, context?: ToolContext): Promise<Json> }
+
+/** Sandboxed fs_*, command_run, web_fetch and web_search tools for an Agent. */
+export class NativeTools {
+  constructor(config: NativeToolsConfig);
+  definitions(): Promise<NativeToolDefinition[]>;
+  execute(name: string, arguments: Json): Promise<Json>;
+  createTools(): Promise<ExecutableTool[]>;
+  /** Download and install the latest Obscura (checked against its published SHA-256) into obscura.install_dir, ~/.hive/bin by default. An existing install is kept unless update is true. */
+  installObscura(options?: { update?: boolean }): Promise<{ path: string; version: string; asset: string; sha256: string; already_current: boolean }>;
+  cancel(): void;
+  /** Stops the Obscura session the obscura_* tools started, if any; the next call starts a new one. */
+  close(): Promise<void>;
+}
+
+export interface ArtifactRecord {
+  id: string; kind: string; mime_type: string; size: number; sha256: string;
+  width: number | null; height: number | null; run_id: string | null; task_id: string | null;
+  status: 'active' | 'expired' | 'deleted'; created_at: number; expires_at: number | null; expired_at: number | null;
+}
+/** Bounded artifact store; see docs/artifacts.md. */
+export class ArtifactStore {
+  private constructor();
+  definitions(): Promise<NativeToolDefinition[]>;
+  execute(name: string, arguments: Json): Promise<Json>;
+  createTools(): Promise<ExecutableTool[]>;
+  expire(options?: { now?: number }): Promise<string[]>;
+}
+export interface OracleConfig {
+  endpoint: string; model: string; api_key?: string; timeout_ms?: number;
+  self_hosted?: boolean; max_output_tokens?: number;
+  /** Charged when the server reports no usage; without it such a call halts the Objective. */
+  assumed_input_tokens?: number | null;
+  cooldown_ms?: number; distrust_strikes?: number; distrust_ms?: number;
+}
+export type OracleQuestion =
+  | { type: 'choice'; instructions: string; criteria: Record<string, string> }
+  | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } };
+export type OracleAnswer =
+  | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
+  | { type: 'noul'; noul: number };
+export type OracleReply =
+  | { outcome: 'decision'; answers: Record<string, OracleAnswer>; charge: { input_tokens: number; output_tokens: number } | null; cost_usd: number | null; latency_ms: number }
+  | { outcome: 'fallback'; reason: string; sent: boolean };
+export interface OracleStatus { state: 'ready' | 'fallback'; cooling_down: boolean; last_error: string | null; last_success_at: number | null; decisions: number }
+/** Opt-in decision oracle; see docs/oracle.md. */
+export class Oracle {
+  constructor(config: OracleConfig);
+  ask(state: Json, questions: Record<string, OracleQuestion>, options?: { objective?: Objective; depth?: number; signal?: AbortSignal }): Promise<OracleReply>;
+  status(): OracleStatus;
+  recordOverruled(reason: string): boolean;
+  recordAgreement(): void;
+  reset(): void;
+  cancel(): void;
 }
 
 export interface McpResource { uri: string; name: string; description?: string; mimeType?: string }
@@ -401,6 +535,44 @@ export interface DelegationGroup {
   status: JobStatus | 'ready' | 'waiting' | 'blocked_uncertain'; synthesis: Job | null;
   specialist_kind: string; synthesis_kind: string;
 }
+export interface JobFilter { status?: JobStatus[]; kind?: string; kind_prefix?: string; lane?: string; objective_id?: string }
+export interface QueueEvent {
+  version: 1; tenant: string; queue: string; seq: number; at: number;
+  type: 'job.status' | 'job.retried' | 'goal.transition';
+  subject: Record<string, Json>;
+}
+export interface GoalSpec {
+  objective_id: string; goal: string; planner_agent_id: string; coordinator_agent_id: string;
+  reviewer_agent_id?: string | null; specialist_ids?: string[];
+  /** 1..8, default 3. */ max_rounds?: number; /** 1..64, default 8. */ max_tasks_per_round?: number;
+  depth?: number; require_verification?: boolean;
+}
+export type GoalStatus = 'planning' | 'running' | 'reviewing' | 'accepted' | 'failed' | 'cancelled';
+type GoalJob = { id: string; status: JobStatus; error: string | null } | null;
+export interface GoalReport {
+  id: string; spec: Required<GoalSpec>; status: GoalStatus;
+  /** A job the goal waits on has an uncertain outcome; it is never replayed. */
+  blocked_uncertain: boolean; round: number; error: string | null; feedback: string | null;
+  rounds: { index: number; plan_job: GoalJob; group: string | null; synthesis_job: GoalJob; review_job: GoalJob;
+    verdict: { accepted: boolean; evidence: string; feedback: string } | null }[];
+  group: DelegationGroup | null;
+  /** Job kinds the host's workers must register: planner, reviewer and, per round, specialists and synthesis. */
+  kinds: { plan: string; review: string; rounds: { round: number; specialist: string; synthesis: string }[] };
+}
+export interface GoalAgentRequest {
+  agentId: string; sessionId: string; stage: 'plan' | 'specialist' | 'synthesis' | 'review';
+  round: number | null; taskId: string | null; job: Job;
+}
+/** The JSON object in a model reply: bare, fenced, or surrounded by prose; null if there is none. */
+export function extractJson(text: string | null | undefined): Record<string, Json> | null;
+/**
+ * Drive a goal with the host's agents until it is accepted, failed or cancelled, or nothing can run
+ * (it waits on other workers' jobs, or a job's outcome is uncertain: reconcile it, it is never replayed).
+ * `agentFor` returns the Agent for each job (bind it to `sessionId`); it is closed after the job.
+ */
+export function runGoal(queue: DurableQueue, goalId: string, options: {
+  agentFor: (request: GoalAgentRequest) => Agent | Promise<Agent>; signal?: AbortSignal; maxSteps?: number;
+}): Promise<GoalReport>;
 export type ScheduleDefinition = { kind: 'at'; unix_ms: number }
   | { kind: 'interval'; every_ms: number; anchor_unix_ms?: number | null }
   | { kind: 'cron'; expression: string; timezone: string; dom_and_dow?: boolean };
@@ -435,6 +607,23 @@ export class DurableQueue {
   group(groupId: string): Promise<DelegationGroup>;
   synthesizeGroup(groupId: string): Promise<Job>;
   cancelGroup(groupId: string): Promise<DelegationGroup>;
+  /** Jobs matching the filter, oldest first. At most 5000 are examined per call; resume with next_cursor. */
+  listJobs(filter?: JobFilter, options?: { limit?: number; cursor?: string | null }): Promise<{ items: Job[]; next_cursor: string | null; examined: number }>;
+  /** Put a failed job back in the queue. Needs attempts left unless force; the objective is checked again and nothing is refunded. */
+  retryJob(jobId: string, options?: { force?: boolean }): Promise<Job>;
+  /** Cancel pending/running jobs matching the filter (finished states are ignored; at most 1000 per call). */
+  cancelJobs(filter: JobFilter): Promise<{ cancelled: { id: string; status: JobStatus }[]; truncated: boolean }>;
+  /** Permanently delete finished jobs of one explicit kind/kind_prefix that ended before finishedBefore (ms). Group/goal jobs (kind hive.*) and a schedule's active job are refused/kept. */
+  purgeJobs(filter: JobFilter, finishedBefore: number, options?: { limit?: number }): Promise<{ purged: number }>;
+  /** Durable event log, oldest first, committed atomically with the change each event describes. Resume from next_after. */
+  events(options?: { after?: number; limit?: number }): Promise<{ items: QueueEvent[]; next_after: number; latest: number }>;
+  /** Delete events up to and including a sequence. The log is never purged on its own. */
+  pruneEvents(upTo: number): Promise<{ removed: number }>;
+  createGoal(goalId: string, spec: GoalSpec): Promise<GoalReport>;
+  goal(goalId: string): Promise<GoalReport>;
+  /** Advance the goal as far as durable job results allow. Idempotent and safe to call concurrently. */
+  tickGoal(goalId: string): Promise<GoalReport>;
+  cancelGoal(goalId: string): Promise<GoalReport>;
   groupVerificationInput(groupId: string, taskId: string): Promise<Json>;
   recordGroupProof(groupId: string, taskId: string, verificationKey: string): Promise<GroupProof>;
   createSchedule(scheduleId: string, spec: ScheduleSpec): Promise<ScheduleInspection>;

@@ -10,6 +10,15 @@ pub struct LoadedSkill {
     pub data: Value,
 }
 
+/// Skills that ship with the SDK as `(name, SKILL.md)`. They name only tools the SDK
+/// implements, and the browser skills state that Obscura is the only browser.
+/// Importing one is the host's choice; nothing here enables a skill by itself.
+pub const BUNDLED: [(&str, &str); 3] = [
+    ("obscura_browser", include_str!("../../skills/obscura_browser/SKILL.md")),
+    ("office_document_manager", include_str!("../../skills/office_document_manager/SKILL.md")),
+    ("pdf_report_writer", include_str!("../../skills/pdf_report_writer/SKILL.md")),
+];
+
 pub fn load(path: &Path) -> Result<LoadedSkill> {
     let path = if path.is_dir() {
         path.join("SKILL.md")

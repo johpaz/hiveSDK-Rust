@@ -2,7 +2,7 @@ THIRD-PARTY NOTICES — Hive SDK Rust
 
 Conservative all-target workspace dependency inventory, including build/dev dependencies; not a list of code linked in an individual binary. License expressions are preserved, not selected or reinterpreted.
 This mechanical inventory is not a legal compliance certification. Pending items are listed below.
-Cargo.lock SHA-256: 7c8fb3c034fe0cecff9dc01df4f793c29e9239acea1775e0e4f573261cfbef75
+Cargo.lock SHA-256: 728902d47740a7f4adcd1354d7ff0f7831c6ec2be2c1c94390e2a952e8742a96
 Status: incomplete
 
 PENDING REVIEW
@@ -13,6 +13,12 @@ PENDING REVIEW
 - winapi-x86_64-pc-windows-gnu@0.4.0: missing_notice_text
 
 PACKAGE INDEX
+
+adler2@2.0.1 — 0BSD OR MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17: LICENSE-0BSD
+  SHA-256 8ada45cd9f843acf64e4722ae262c622a2b3b3007c7310ef36ac1061a30f6adb: LICENSE-APACHE
+  SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
 
 aes@0.8.4 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -854,6 +860,13 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90: LICENSE-APACHE
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
   SHA-256 dbe1fff0fb1314b6af94f161511406275cf01c5a32441fbf24528a57a051d599: LICENSE.md
+
+miniz_oxide@0.9.1 — MIT OR Zlib OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b: LICENSE
+  SHA-256 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594: LICENSE-APACHE.md
+  SHA-256 799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d: LICENSE-MIT.md
+  SHA-256 0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39: LICENSE-ZLIB.md
 
 mio@1.2.4 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -2965,6 +2978,25 @@ the following restrictions:
 
 2. Altered source versions must be plainly marked as such, and must not be
    misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
+
+
+========================================================================
+DOCUMENT SHA-256 0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39
+========================================================================
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+Copyright (c) 2020 Frommi
+Copyright (c) 2017-2024 oyvindln
+
+This software is provided 'as-is', without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose, including commercial applications, and to alter it and redistribute it freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
 
@@ -6946,6 +6978,36 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+
+
+========================================================================
+DOCUMENT SHA-256 4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b
+========================================================================
+MIT License
+
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+Copyright (c) 2017 Frommi
+Copyright (c) 2017-2024 oyvindln
+
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================
@@ -11299,6 +11361,35 @@ limitations under the License.
 
 
 ========================================================================
+DOCUMENT SHA-256 799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d
+========================================================================
+MIT License
+
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+Copyright (c) 2017 Frommi
+Copyright (c) 2017-2024 oyvindln
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========================================================================
 DOCUMENT SHA-256 7abd9b6960dcf7d4d0a48606a5b71bfe37d472db68d70637f3a58a56785f1621
 ========================================================================
 // Copyright 2015-2016 Brian Smith.
@@ -11895,6 +11986,23 @@ Permission is granted to anyone to use this software for any purpose, including 
 2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
+
+
+========================================================================
+DOCUMENT SHA-256 861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17
+========================================================================
+Copyright (C) Jonas Schievink <jonasschievink@gmail.com>
+
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 
 ========================================================================

@@ -1,5 +1,5 @@
 //! Durable checkpoints and tool ledger. Uncertain operations never restart implicitly.
-use crate::{Action, Engine, Error, ModelReply, Result, ToolCall};
+use crate::{Action, Engine, Error, ModelReply, Prompt, Result, ToolCall};
 use hivedb_core::{ColOp, HiveDB, HiveError, PutOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -132,6 +132,10 @@ enum Command {
     Services {
         command: Value,
     },
+    Artifacts {
+        root: String,
+        command: Value,
+    },
     SetContextPlan {
         agent_id: String,
         session_id: String,
@@ -162,7 +166,7 @@ enum Command {
         session_id: String,
         revision: u64,
         initial: Engine,
-        prompt: String,
+        prompt: Prompt,
         #[serde(default)]
         objective_depth: u32,
         #[serde(default)]
@@ -330,6 +334,7 @@ impl SessionStore {
             Command::Queue { id, command } => self.queue(&id)?.dispatch(command)?,
             #[cfg(feature = "services")]
             Command::Services { command } => self.services().dispatch(command)?,
+            Command::Artifacts { root, command } => self.artifacts(root)?.dispatch(command)?,
             Command::SetContextPlan {
                 agent_id,
                 session_id,
@@ -366,7 +371,7 @@ impl SessionStore {
                 objective_depth,
                 summary_key,
                 objective_id,
-            } => serde_json::to_value(self.begin_run_with_objective(
+            } => serde_json::to_value(self.begin_run_with_input(
                 &agent_id,
                 &session_id,
                 revision,
@@ -876,6 +881,32 @@ impl SessionStore {
         summary_key: Option<String>,
         objective_id: Option<String>,
     ) -> Result<RunFrame> {
+        self.begin_run_with_input(
+            agent,
+            session,
+            revision,
+            initial,
+            Prompt::Text(prompt),
+            objective_depth,
+            summary_key,
+            objective_id,
+        )
+    }
+
+    /// Same as [`SessionStore::begin_run_with_objective`], with a prompt that may
+    /// carry attachments.
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_run_with_input(
+        &self,
+        agent: &str,
+        session: &str,
+        revision: u64,
+        initial: Engine,
+        prompt: Prompt,
+        objective_depth: u32,
+        summary_key: Option<String>,
+        objective_id: Option<String>,
+    ) -> Result<RunFrame> {
         if let Some(id) = &objective_id {
             valid_id(id)?;
             if initial.objective_id.is_some() {
@@ -907,7 +938,7 @@ impl SessionStore {
             ));
         }
         let mut state = initial.clone();
-        state.start(prompt)?;
+        state.start_prompt(prompt)?;
         let run = RunCheckpoint {
             run_id: uuid::Uuid::new_v4().to_string(),
             objective_id,

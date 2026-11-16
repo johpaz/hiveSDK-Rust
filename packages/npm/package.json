@@ -18,6 +18,7 @@
     "index.mjs",
     "services.mjs",
     "queue.mjs",
+    "goals.mjs",
     "secrets.mjs",
     "index.d.ts",
     "platform.mjs",

@@ -67,7 +67,7 @@ fn adapters_map_the_explicit_schema_without_rewriting_its_constraints() {
     let mut state = engine(policy());
     state.start("Answer 🦀".into()).unwrap();
     let req = request(&state);
-    let openai = hive_agent_core::provider::request_body(req);
+    let openai = hive_agent_core::provider::request_body(req).unwrap();
     assert_eq!(
         openai["response_format"],
         json!({"type":"json_schema","json_schema":{"name":"answer_v1","schema":output().schema,"strict":true}})
@@ -92,6 +92,7 @@ fn adapters_map_the_explicit_schema_without_rewriting_its_constraints() {
     plain.start("Plain".into()).unwrap();
     assert!(
         hive_agent_core::provider::request_body(request(&plain))
+            .unwrap()
             .get("response_format")
             .is_none()
     );
@@ -225,6 +226,7 @@ fn every_framing_counts_the_schema_including_gemini_generation_config() {
                 framing,
                 max_total_tokens: None,
                 context_window_tokens: None,
+                attachment_tokens: None,
             }),
             ..policy()
         });
@@ -234,7 +236,9 @@ fn every_framing_counts_the_schema_including_gemini_generation_config() {
             input_text(req)
         } else {
             let mut body = match framing {
-                InputTokenFraming::OpenaiChatJson => hive_agent_core::provider::request_body(req),
+                InputTokenFraming::OpenaiChatJson => {
+                    hive_agent_core::provider::request_body(req).unwrap()
+                }
                 InputTokenFraming::AnthropicMessagesJson => {
                     hive_agent_core::provider::anthropic::request_body(req, 1).unwrap()
                 }
