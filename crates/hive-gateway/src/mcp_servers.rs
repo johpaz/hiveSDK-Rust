@@ -234,6 +234,13 @@ pub(crate) fn resolve(app: &App, wire_name: &str) -> Option<(String, String)> {
     })
 }
 
+/// Whether a call that reached the server reports that the tool itself failed. The SDK wraps such a
+/// result as `{"error": {"code": "MCP_TOOL_ERROR", ..}}`; a bare `isError` is kept for results that
+/// were not wrapped.
+fn tool_failed(result: &Value) -> bool {
+    result["isError"] == true || result["error"]["code"] == "MCP_TOOL_ERROR"
+}
+
 /// Run one call and say what happened in terms the model can act on. Never retried.
 pub(crate) async fn execute(app: &Arc<App>, server: &str, tool: &str, arguments: Value) -> Value {
     let request =
@@ -246,7 +253,7 @@ pub(crate) async fn execute(app: &Arc<App>, server: &str, tool: &str, arguments:
         };
     match request.result().await {
         Ok(value) => {
-            let failed = value["isError"] == true;
+            let failed = tool_failed(&value);
             let mut text = serde_json::to_string(&value).unwrap_or_default();
             if text.chars().count() > MAX_RESULT_CHARS {
                 text = text.chars().take(MAX_RESULT_CHARS).collect::<String>() + "…(recortado)";
@@ -257,5 +264,27 @@ pub(crate) async fn execute(app: &Arc<App>, server: &str, tool: &str, arguments:
         Err(Error::McpOperationUncertain) => json!({"ok":false,
             "error":"MCP_OPERATION_UNCERTAIN: se perdió la conexión con el servidor mientras la acción se ejecutaba y no se sabe si llegó a hacerse. No la repitas sin comprobarlo (por ejemplo, buscando el resultado) o sin que la persona lo confirme."}),
         Err(error) => json!({"ok":false,"error":error.to_string()}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_failed;
+    use serde_json::json;
+
+    #[test]
+    fn a_tool_error_is_a_failure_however_the_sdk_wraps_it_and_a_normal_answer_is_not() {
+        let wrapped = json!({"error":{"code":"MCP_TOOL_ERROR","message":"MCP tool reported an execution error",
+            "result":{"content":[{"type":"text","text":"no se pudo"}],"isError":true}}});
+        assert!(tool_failed(&wrapped));
+        assert!(tool_failed(&json!({"content":[],"isError":true})));
+        assert!(!tool_failed(
+            &json!({"content":[{"type":"text","text":"hecho"}]})
+        ));
+        // A server's own data that merely has an `error` field is not a tool failure.
+        assert!(!tool_failed(
+            &json!({"structuredContent":{"error":"ninguno"}})
+        ));
+        assert!(!tool_failed(&json!({"error":{"code":"OTHER"}})));
     }
 }
