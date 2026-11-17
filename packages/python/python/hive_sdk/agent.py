@@ -302,22 +302,37 @@ class Anthropic(_NativeHttpProvider):
     def __init__(self, *, base_url: str = "https://api.anthropic.com/v1",
                  api_key: str | None = None, timeout_ms: int = 60_000,
                  max_response_bytes: int = 16 * 1024 * 1024,
-                 api_version: str = "2026-10-21", default_max_output_tokens: int = 4096,
-                 resilience: dict[str, Any] | None = None):
+                 api_version: str = "2026-10-21", default_max_output_tokens: int | None = None,
+                 context_window: int | None = None, resilience: dict[str, Any] | None = None):
+        """Without ``default_max_output_tokens`` the output limit is derived from ``context_window`` (15%, at most 32768), else 4096."""
         super().__init__({"kind": "anthropic", "base_url": base_url, "api_key": api_key,
             "timeout_ms": timeout_ms, "max_response_bytes": max_response_bytes,
-            "api_version": api_version, "default_max_output_tokens": default_max_output_tokens,
-            **_optional(resilience=resilience)})
+            "api_version": api_version, **_optional(default_max_output_tokens=default_max_output_tokens,
+            context_window=context_window, resilience=resilience)})
 
 
 class Gemini(_NativeHttpProvider):
     def __init__(self, *, base_url: str = "https://generativelanguage.googleapis.com/v1beta",
                  api_key: str | None = None, timeout_ms: int = 60_000,
-                 max_response_bytes: int = 16 * 1024 * 1024, default_max_output_tokens: int = 4096,
-                 resilience: dict[str, Any] | None = None):
+                 max_response_bytes: int = 16 * 1024 * 1024, default_max_output_tokens: int | None = None,
+                 context_window: int | None = None, resilience: dict[str, Any] | None = None):
+        """Without ``default_max_output_tokens`` the output limit is derived from ``context_window`` (15%, at most 32768), else 4096."""
         super().__init__({"kind": "gemini", "base_url": base_url, "api_key": api_key,
             "timeout_ms": timeout_ms, "max_response_bytes": max_response_bytes,
-            "default_max_output_tokens": default_max_output_tokens, **_optional(resilience=resilience)})
+            **_optional(default_max_output_tokens=default_max_output_tokens, context_window=context_window,
+            resilience=resilience)})
+
+
+class Ollama(_NativeHttpProvider):
+    """Ollama's native chat API (``/api/chat``). ``num_ctx`` is the context window it is asked for (Ollama otherwise
+    silently cuts the prompt to a small default), ``keep_alive`` a duration such as ``"10m"``, ``think`` turns thinking on or off."""
+    def __init__(self, *, base_url: str = "http://localhost:11434/api", api_key: str | None = None, timeout_ms: int = 60_000,
+                 max_response_bytes: int = 16 * 1024 * 1024, default_max_output_tokens: int | None = None,
+                 context_window: int | None = None, num_ctx: int | None = None, keep_alive: str | None = None,
+                 think: bool | None = None, resilience: dict[str, Any] | None = None):
+        super().__init__({"kind": "ollama", "base_url": base_url, "timeout_ms": timeout_ms, "max_response_bytes": max_response_bytes,
+            **_optional(api_key=api_key, default_max_output_tokens=default_max_output_tokens, context_window=context_window,
+            num_ctx=num_ctx, keep_alive=keep_alive, think=think, resilience=resilience)})
 
 
 async def _invoke(callback: Callable, *args: Any) -> Any:
@@ -478,9 +493,11 @@ class Agent:
                  max_turns: int = 8, policy: dict[str, Any] | None = None,
                  on_event: Callable | None = None, store: SessionStore | None = None,
                  agent_id: str | None = None, session_id: str | None = None, resume: bool = False,
-                 objective: Objective | None = None):
+                 objective: Objective | None = None, tool_policy: dict[str, Any] | None = None,
+                 hooks: dict[str, Callable] | None = None):
         self._initialize(False, model=model, system=system, tools=tools, provider=provider, max_turns=max_turns,
-            policy=policy, on_event=on_event, store=store, agent_id=agent_id, session_id=session_id, resume=resume, objective=objective)
+            policy=policy, on_event=on_event, store=store, agent_id=agent_id, session_id=session_id, resume=resume, objective=objective,
+            tool_policy=tool_policy, hooks=hooks)
 
     @classmethod
     async def open(cls, **options) -> Agent:
@@ -506,7 +523,21 @@ class Agent:
                  max_turns: int = 8, policy: dict[str, Any] | None = None,
                  on_event: Callable | None = None, store: SessionStore | None = None,
                  agent_id: str | None = None, session_id: str | None = None, resume: bool = False,
-                 objective: Objective | None = None):
+                 objective: Objective | None = None, tool_policy: dict[str, Any] | None = None,
+                 hooks: dict[str, Callable] | None = None):
+        self._tool_policy = None
+        if tool_policy is not None:
+            # Validate now so a bad policy fails at construction, not mid-run.
+            _native.evaluate_tool_policy(json.dumps(tool_policy, allow_nan=False), '_', '{}')
+            self._tool_policy = json.dumps(tool_policy, allow_nan=False)
+        self._hooks = None
+        if hooks is not None:
+            for name, hook in hooks.items():
+                if name not in ('before_tool', 'after_tool', 'approve'):
+                    raise TypeError(f'Unknown hook {name}')
+                if not callable(hook):
+                    raise TypeError(f'Hook {name} must be callable')
+            self._hooks = dict(hooks)
         if objective is not None and not isinstance(objective, Objective):
             raise TypeError('objective must be an Objective')
         if objective is not None: objective._validate_store(store)
@@ -690,6 +721,48 @@ class Agent:
         finally:
             self._operation_task = None
 
+    async def _authorize(self, call):
+        """Whether a tool call may run: declarative policy (native), the before_tool hook, then
+        approval when either says ``ask``. The strictest answer wins and any hook failure denies.
+        Runs before the operation is claimed, so waiting for approval cannot leave a claimed,
+        unrun operation behind if the process dies. Returns ``(allowed, reason)``."""
+        if self._tool_policy is None and not self._hooks:
+            return True, None
+        rank = {'allow': 0, 'ask': 1, 'deny': 2}
+        state = {'decision': 'allow', 'reason': None}
+        def tighten(decision, why):
+            if rank[decision] > rank[state['decision']]:
+                state['decision'], state['reason'] = decision, why
+        hooks = self._hooks or {}
+        if self._tool_policy is not None:
+            verdict = json.loads(_native.evaluate_tool_policy(self._tool_policy, call['name'], json.dumps(call.get('arguments') or {}, allow_nan=False)))
+            tighten(verdict['decision'], verdict['reason'])
+        if 'before_tool' in hooks:
+            try:
+                answer = await self._operation(hooks['before_tool'], {'call': copy.deepcopy(call),
+                    'verdict': {'decision': state['decision'], 'reason': state['reason']}, 'cancel_event': self._cancel_event})
+                if isinstance(answer, dict) and answer.get('decision') is not None:
+                    if answer['decision'] in rank: tighten(answer['decision'], answer.get('reason') or 'before_tool hook')
+                    else: tighten('deny', 'POLICY_HOOK_FAILED: before_tool returned an unknown decision')
+            except Exception:
+                tighten('deny', 'POLICY_HOOK_FAILED: before_tool raised')
+        if state['decision'] == 'ask':
+            if 'approve' not in hooks:
+                state['decision'] = 'deny'
+                state['reason'] = f"APPROVAL_UNAVAILABLE: {state['reason'] or 'approval required'} (no approve hook is configured)"
+            else:
+                approved, why = False, None
+                try:
+                    answer = await self._operation(hooks['approve'], {'call': copy.deepcopy(call), 'reason': state['reason'], 'cancel_event': self._cancel_event})
+                    approved = answer is True or (isinstance(answer, dict) and answer.get('approved') is True)
+                    why = answer.get('reason') if isinstance(answer, dict) else None
+                except Exception:
+                    why = 'APPROVAL_FAILED: the approval hook raised'
+                if approved: state['decision'] = 'allow'
+                else:
+                    state['decision'], state['reason'] = 'deny', why or f"approval refused: {state['reason'] or 'approval required'}"
+        return state['decision'] == 'allow', state['reason']
+
     async def _collect(self, events):
         result = None
         async for event in events:
@@ -867,6 +940,8 @@ class Agent:
                     else:
                         frame = self._memory({"op": "reject"})
                 elif action["type"] == "tool":
+                    allowed, deny_reason = await self._authorize(action["call"])
+                    self._check_cancel()
                     if objective is not None and self._store is None: await objective._dispatch_async(scoped_command('tool'))
                     call = action["call"]
                     if self._store is not None:
@@ -898,10 +973,25 @@ class Agent:
                             tool_call_id=call["id"], cancel_event=self._cancel_event)
                         context.delegate = delegate
                         args = (call["arguments"], context) if tool.with_context else (call["arguments"],)
-                        result = await self._operation(tool.execute, *args)
-                        accepting_children = False
-                        if children: await asyncio.gather(*(task for _, task in children))
-                        result = json.loads(json.dumps(result, allow_nan=False))
+                        if not allowed:
+                            # Denied: the tool is not run; the model is told why, like any tool error.
+                            reason = deny_reason or 'not allowed'
+                            result = {"error": {"message": reason if reason.startswith(('POLICY_', 'APPROVAL_')) else f'POLICY_DENIED: {reason}'}}
+                        else:
+                            result = await self._operation(tool.execute, *args)
+                            accepting_children = False
+                            if children: await asyncio.gather(*(task for _, task in children))
+                            result = json.loads(json.dumps(result, allow_nan=False))
+                            if self._hooks and 'after_tool' in self._hooks:
+                                # The tool already ran. If the filter fails its output is withheld, not passed on unchecked.
+                                try:
+                                    filtered = await self._operation(self._hooks['after_tool'], {'call': copy.deepcopy(call),
+                                        'result': copy.deepcopy(result), 'cancel_event': self._cancel_event})
+                                    if isinstance(filtered, dict) and 'result' in filtered:
+                                        result = json.loads(json.dumps(filtered['result'], allow_nan=False))
+                                except Exception:
+                                    self._check_cancel()
+                                    result = {"error": {"message": 'POLICY_HOOK_FAILED: after_tool failed; the tool ran but its output was withheld'}}
                     except (ToolOperationUncertain, ObjectiveLimit):
                         for child, task in children:
                             if not task.done() and not child.cancel(): task.cancel()

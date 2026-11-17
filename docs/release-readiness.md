@@ -6,6 +6,21 @@ El SDK se construye desde cero, con APIs propias y bases nuevas, y npm/Python co
 
 Para iniciar la prueba funcional sin publicar, seguir [el procedimiento del proyecto local](local-project-validation.md). La [fotografía de avance](progress-2026-11-10.md) distingue consumidor offline comprobado, proveedor real y conexión pendiente con el backend.
 
+## Estado al cierre de la implementación local (15 de noviembre)
+
+Las Fases 0–4 del plan quedaron implementadas y probadas **en Linux x64** (detalle y límites de cada una en [paridad](parity.md), [goals](goals.md), [política](policy.md), [multiusuario](gateway-multiuser.md), [canales](channels.md), [MCP](mcp.md), [Obscura](obscura.md), [Office](office.md) y [resiliencia](resilience.md)). Regresión local: **Rust 525** pruebas, **npm 205** (Node 26), **Python 200** (3.10), `cargo clippy --all-features --all-targets -D warnings`, `cargo fmt --check`, `tsc --strict` y **MSRV 1.95.0** (`cargo check --workspace --all-targets --locked`) limpios. Se comprobó que las skills (`crates/hive-core/skills`) viajan en el paquete del crate y `goals.mjs` en el tarball de npm. El CI ahora ejecuta además `cargo test -p hive-agent-core --all-features` (antes solo tres suites con features) y instala poppler para los cruces de PDF.
+
+**Lo que NO está cerrado, y por qué no lo puedo cerrar yo:**
+
+| Pendiente | Por qué |
+| --- | --- |
+| Cinco revisiones de avisos de terceros y `libgcc_s` del wheel musl | Son decisiones de licencias/atribución (textos de aviso ausentes en el crate publicado, excepción de runtime GPL). Un script no puede dar por «limpio» un componente; requiere tu revisión. `scripts/third-party-notices.py --check` sigue diciendo `incomplete` |
+| `hivedb-core` fijado por Git (bloquea `cargo publish`) | Hay que publicarlo en un registro o decidir el empaquetado permitido; es una decisión de publicación |
+| Binarios de las seis plataformas y `evals/distribution-*.json` | Los binarios históricos no validan el código nuevo; hay que ejecutar `native.yml` en CI (primera ejecución remota aún no hecha) |
+| Repositorio, commits y credenciales npm/PyPI | Los commits son tuyos; `release.yml` solo debe correr sobre artefactos verificados |
+| Evaluación con modelos y cuentas reales | Proveedores, goal runner con modelos reales, Telegram/Discord/Slack/WhatsApp reales y Obscura fuera de Linux x64 solo se probaron con servidores falsos (Obscura sí con el binario real 0.2.4/0.2.7 en Linux x64) |
+| Funcionalidad pendiente | WhatsApp QR sin probar con un teléfono real y sin revisar su `wacore-libsignal` para distribuir (ver [whatsapp-qr.md](whatsapp-qr.md)), voz y realtime embebibles (Gemini Live real), `computer_use` (necesita decisión explícita), OCR (necesita elegir un modelo) y PDF con contraseña de propietario o clave pública, protocolo nativo de Ollama, tope de salida derivado de la ventana de contexto, medios y modo webhook en Slack, otros transportes MCP, Office (fechas y estilos de Excel, encabezados de Word, notas del orador) y la prueba conjunta de las aprobaciones (escritorio y canales) con un gateway, modelos y cuentas reales |
+
 ## Ya disponible
 
 - Tools/callbacks propios del lenguaje, proveedores OpenAI Chat/Anthropic Messages/Gemini GenerateContent, JSON/SSE y salida estructurada validada en Rust.
@@ -72,3 +87,6 @@ La guía final debe reconciliar los ejemplos, nombres/artefactos publicados e in
 5. Cerrar guía/versiones y publicar únicamente los artefactos validados; probar su instalación desde los registros.
 
 No se asigna un porcentaje de avance ni una fecha de publicación a partir del número de checkboxes. La parte funcional y la preparación de release tienen criterios distintos y los bloqueos anteriores siguen visibles en PLAN.md.
+
+## Binarios del gateway
+`gateway.yml` y `release.yml` publican `hive-gateway-rust` (cinco plataformas, con SHA256SUMS) para quien no use npm ni Python. Pendiente: ejecutarlos por primera vez en CI; sin build musl; crates.io bloqueado por `hivedb-core` (Git). Ver [gateway-binary.md](gateway-binary.md).

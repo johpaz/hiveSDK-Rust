@@ -25,6 +25,32 @@ jobs:
       - run: rustup toolchain install 1.95.0 --profile minimal
       - run: cargo +1.95.0 check --workspace --all-targets --jobs 2 --locked
       - run: cargo +1.95.0 test -p hive-agent-core --test durable_handles --test structured_output --jobs 2 --locked
+  # The Windows and macOS desktop backends (computer use) were written from the platform
+  # documentation and have only been type-checked from Linux. This is the first time they are
+  # compiled and exercised on the real platforms; a failure here is the result of the external test
+  # described in docs/external-testing.md, section 1.
+  desktop-backends:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        run: rustup toolchain install 1.100.0 --profile minimal --component clippy
+      - run: rustup default 1.100.0
+      - run: cargo build -p hive-agent-core --features computer-use --examples --locked
+      - run: cargo clippy -p hive-agent-core --features computer-use --examples --locked -- -D warnings
+      - run: cargo test -p hive-agent-core --features computer-use --lib computer --locked
+      # Needs no permissions and touches nothing: only the first part of the demo (a screenshot) is
+      # attempted, and a refusal by the operating system (no screen on a CI runner) is an acceptable answer.
+      - name: Screenshot smoke test
+        continue-on-error: true
+        run: cargo run -p hive-agent-core --features computer-use --example computer_demo --locked -- screenshot ci.png
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -66,6 +92,10 @@ jobs:
         run: |
           cargo test -p hive-agent-core --all-features --test services --test browser --test tools --locked
           cargo test -p hive-agent-core --features services --lib services::secrets --locked
+      - name: Install poppler (independent PDF reader for cross-checks)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Core with every feature (tools, Office and PDF, Obscura against a fake server, policy, resilience, MCP manager, goals, queue administration)
+        run: cargo test -p hive-agent-core --all-features --locked
       - name: Native durable queue, worker and scheduler contracts
         run: cargo test -p hive-agent-core --features scheduler --lib harness --locked
       - run: python scripts/build-dev.py

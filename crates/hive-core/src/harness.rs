@@ -442,7 +442,11 @@ impl DurableQueue {
     fn save(&self, meta: &mut Meta, job: &mut Job, writes: &mut Vec<ColOp>) -> Result<()> {
         let previous = job.revision;
         // Every status change is an event in the same atomic batch; heartbeats are not.
-        let before = if previous == 0 { None } else { meta.slots.get(&job.id).map(|slot| slot.status) };
+        let before = if previous == 0 {
+            None
+        } else {
+            meta.slots.get(&job.id).map(|slot| slot.status)
+        };
         if before != Some(job.status) {
             let subject = json!({"job_id":job.id,"kind":job.input.kind,"lane":job.input.lane,"status":job.status,
                 "objective_id":job.input.objective_id,"attempts":job.attempts});
@@ -1043,11 +1047,21 @@ impl DurableQueue {
                 serde_json::to_value(self.synthesize_group(&group_id)?)?
             }
             Command::GroupCancel { group_id } => self.cancel_group(&group_id)?,
-            Command::JobsList { filter, limit, cursor } => self.list_where(&filter, limit, cursor.as_deref())?,
-            Command::JobRetry { job_id, force } => serde_json::to_value(self.retry_failed(&job_id, force)?)?,
+            Command::JobsList {
+                filter,
+                limit,
+                cursor,
+            } => self.list_where(&filter, limit, cursor.as_deref())?,
+            Command::JobRetry { job_id, force } => {
+                serde_json::to_value(self.retry_failed(&job_id, force)?)?
+            }
             Command::JobsCancelWhere { filter } => self.cancel_where(&filter)?,
             Command::Events { after, limit } => self.events(after, limit)?,
-            Command::JobsPurge { filter, finished_before, limit } => self.purge_jobs(&filter, finished_before, limit)?,
+            Command::JobsPurge {
+                filter,
+                finished_before,
+                limit,
+            } => self.purge_jobs(&filter, finished_before, limit)?,
             Command::EventsPrune { up_to } => self.prune_events(up_to)?,
             Command::GoalCreate { goal_id, spec } => self.create_goal(&goal_id, spec)?,
             Command::GoalGet { goal_id } => self.goal(&goal_id)?,
@@ -1103,9 +1117,9 @@ pub use groups::{GroupSpec, SpecialistTask};
 mod admin;
 #[cfg(test)]
 mod admin_tests;
-mod goals;
 #[cfg(test)]
 mod goal_tests;
+mod goals;
 pub use admin::JobFilter;
 pub use goals::GoalSpec;
 

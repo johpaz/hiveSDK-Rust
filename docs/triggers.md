@@ -2,7 +2,7 @@
 
 Los flujos durables emit/tick/watch usan workers para inspección, claims y finalización. Para registrar y controlar sin I/O síncrono usar `objective.triggerAsync` / `trigger_async`, `enableAsync` / `enable_async`, `disableAsync` / `disable_async`, `inspectAsync` / `inspect_async` y `resolveAsync` / `resolve_async`. Ver [ámbitos, cancelación y medición local](objective-runtime.md).
 
-Rust y los bindings npm/Python admiten eventos externos, fecha UTC única e intervalos. Los callbacks se ejecutan fuera del loop de `Agent`; registrar un trigger no crea timers ni llamadas al modelo.
+Rust y los bindings npm/Python admiten eventos externos, fecha UTC única, intervalos y **expresiones cron con zona horaria** (ver más abajo). Los callbacks se ejecutan fuera del loop de `Agent`; registrar un trigger no crea timers ni llamadas al modelo.
 
 Registrar un trigger no lo activa. Habilitarlo tampoco crea timers ni llama al modelo. El kernel solo prepara claims al recibir `poll_trigger_at` o `emit_trigger`; la aplicación ejecuta el trabajo fuera del ciclo Agent y aporta su resultado.
 
@@ -92,3 +92,27 @@ Un claim consume un intento raíz, compartido con tools y verificaciones. No con
 Para persistir, `SessionStore.open_objective` y `objective_command` ofrecen `trigger_register`, `trigger_enable`, `trigger_inspect`, `trigger_emit`, `trigger_tick` y `trigger_finish`. Claim, calendario y contador se confirman en el mismo documento/transacción HiveDB. El ledger de objetivos usa formato 4 desde el kernel de resúmenes y lee formatos previos conservando sus saldos. Reabrir no elimina incertidumbre ni activa callbacks automáticamente.
 
 Un callback fallido o resultado inválido deja `TriggerUncertain`, sin repetirlo automáticamente. Antes de reconciliar, detener al ejecutor anterior y comprobar el efecto externo. npm: `trigger.resolve({occurrenceKey, executionId, result})`; Python: `trigger.resolve(occurrence_key=..., execution_id=..., result=...)`. Los IDs se obtienen con `inspect().executions`; se exige el ID vigente. El cierre de un proceso no garantiza rollback ni exactamente una ejecución en un servicio remoto.
+
+## Triggers cron
+
+```js
+const trigger = objective.trigger('informe',
+  { kind: 'cron', expression: '0 8 * * MON-FRI', timezone: 'America/Bogota' },
+  async (input, context) => context.delegate(worker, 'Prepara el informe diario'));
+trigger.enable();
+await trigger.tick();      // reclama la ocurrencia vencida, si la hay
+```
+
+Python: `{'kind': 'cron', 'expression': '0 8 * * MON-FRI', 'timezone': 'America/Bogota'}` (más `dom_and_dow`); Rust: `TriggerSchedule::Cron { expression, timezone, dom_and_dow }`.
+
+Usa **el mismo calendario que el scheduler de colas** ([native-scheduler.md](native-scheduler.md)): cinco campos, o seis con segundos; listas, rangos, pasos, `?`, nombres ingleses de meses y días y domingo 0/7; zona IANA con cambios de horario (una hora local inexistente se omite, una ambigua es su primera ocurrencia); DOM y DOW con OR por defecto o AND con `dom_and_dow`. Hasta ocho años hacia delante.
+
+- **Se valida al registrar.** Una expresión inválida (`80 * * * *`, `*/0 …`, vacía), una zona desconocida o una fecha que nunca llega (`0 0 30 2 *`) es un error y **no se registra nada**; el mismo id con otra definición se rechaza, con la misma definición es idempotente.
+- **Como los demás triggers**, nace desactivado, no crea timers ni llama al modelo, y cada reclamo consume un intento del `Objective` y usa claves de ocurrencia idempotentes: la clave es la hora programada en milisegundos. Una ocurrencia en curso bloquea la siguiente (`TriggerUncertain`) y, tras reabrir un store con una ocurrencia a medias, **no se repite**; la definición y `next_due_unix_ms` son durables.
+- **Ocurrencias perdidas.** Tras una parada larga se reclama **una sola ocurrencia, la más reciente que ya venció**, y la siguiente queda en el futuro: nunca una ráfaga de recuperación. `skipped_occurrences` cuenta las anteriores que se omitieron: **exacto hasta 100**; si fueron más, vale 100 y aparece `skipped_is_lower_bound: true` («al menos 100»). El tope existe para que una caída larga de un trigger por segundo no cueste un cálculo largo con el ledger bloqueado; la ocurrencia reclamada es siempre la correcta.
+- **Feature `scheduler`.** El cálculo del calendario está en esa feature de Rust (los bindings npm y Python ya la activan). Sin ella `Cron` se rechaza al registrar con un motivo claro.
+
+**Validación:** `tests/triggers.rs` (con y sin la feature): hora de pared en Bogotá (08:00 son las 13:00 UTC) y avance de una ocurrencia exacta; desactivado, no vencido por un milisegundo y bloqueo por ocurrencia en curso; cobro de un intento sin llamadas de modelo; tres días perdidos → una reclamación con 3 omitidas; dos días de un cron por minuto y un día de uno por segundo → una reclamación, la ocurrencia correcta y el 100 como cota; entre semana; 7 expresiones inválidas sin dejar estado; idempotencia y rechazo de otra definición, incluido OR frente a AND; reabrir un store con una ocurrencia a medias sin repetirla; y en npm y Python el cron por segundo con zona y la persistencia de la definición.
+
+**Alcance honesto:** el kernel decide *cuándo* hay una ocurrencia, pero sigue sin ejecutar nada ni mantener timers: la aplicación llama a `tick`/`watch`. Se probó con el reloj real o inyectado, no con cambios de horario reales de producción más allá de lo ya cubierto por el calendario compartido.
+

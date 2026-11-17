@@ -22,7 +22,9 @@ pub struct App {
     pub live_sessions: Mutex<HashMap<String, CancellationToken>>,
     pub dashboard: crate::dashboard::Runtime,
     pub office_events: tokio::sync::broadcast::Sender<Value>,
-    pub activity_lock: Mutex<()>,
+    /// Configuration reads share it; every change to configuration, the panel, the scheduler and the dashboard
+    /// takes it exclusively, so a read never sees a change half made.
+    pub activity_lock: std::sync::RwLock<()>,
     pub db: Arc<HiveDB>,
     pub home: PathBuf,
     pub db_path: PathBuf,
@@ -31,6 +33,72 @@ pub struct App {
     pub sessions: Mutex<HashMap<String, Arc<DurableEngineHandle>>>,
     pub active: Mutex<HashMap<String, CancellationToken>>,
     pub store: Arc<Mutex<Option<SessionStore>>>,
+    /// Stores of the other users (the owner's is `store`), opened on first use.
+    pub user_stores: Mutex<HashMap<String, Arc<Mutex<Option<SessionStore>>>>>,
+    /// Tool calls waiting for a person to approve them, by approval id.
+    pub approvals: Mutex<HashMap<String, PendingApproval>>,
+    /// The approval a chat of a channel was asked, by `kind:peer`: that chat's next "sí" or "no"
+    /// answers it (see `channels::ask_agent`).
+    pub chat_approvals: Mutex<HashMap<String, String>>,
+    /// The MCP servers of HiveDB, connected by `mcp_servers::run`.
+    pub mcp: Arc<hive_agent_core::mcp::McpManager>,
+    /// Why an `mcpServers` row is not connected (`id → reason`; `*` for the whole set).
+    pub mcp_notes: Mutex<HashMap<String, String>>,
+    /// Pictures a channel received for a conversation's next turn, by thread: set just before the
+    /// turn starts and taken by it. Only one turn runs per thread, so there is no ambiguity.
+    pub turn_attachments: Mutex<HashMap<String, Vec<Value>>>,
+    /// Conversations whose documents a person approved sending to the OCR provider, until when.
+    pub ocr_grants: Mutex<HashMap<String, std::time::Instant>>,
+    /// The decision oracle for the current `oracle` settings: `(signature, oracle)`.
+    pub oracle: Mutex<Option<(String, Arc<hive_agent_core::oracle::Oracle>)>>,
+    /// The SDK desktop tools for the current `computerUse` settings: `(settings signature, tools)`.
+    pub computer: Mutex<Option<(String, hive_agent_core::tools::NativeTools)>>,
+    /// Conversations whose desktop control a person approved, until when (`user\0thread`).
+    pub computer_grants: Mutex<HashMap<String, std::time::Instant>>,
+    /// Live state of channel adapters, by channel id: `{status, error}`.
+    pub channel_status: Mutex<HashMap<String, Value>>,
+    /// Wakes the channel supervisor when a channel's configuration changes.
+    pub channel_wakeup: tokio::sync::Notify,
+    /// Writes to the tool audit log, to prune it now and then.
+    pub audit_writes: std::sync::atomic::AtomicU64,
+    /// Token buckets and the cached rate-limit configuration.
+    pub limiter: Mutex<crate::ratelimit::Limiter>,
+    pub rate_config: Mutex<Option<(std::time::Instant, crate::ratelimit::Config)>>,
+}
+
+pub struct PendingApproval {
+    pub user: String,
+    pub answer: tokio::sync::oneshot::Sender<bool>,
+}
+
+/// The administrator's tool policy, kept in HiveDB (`toolPolicy/default`).
+pub struct StoredToolPolicy {
+    pub policy: hive_agent_core::policy::ToolPolicy,
+    /// How long a person has to answer an `ask` before it is denied.
+    pub approval_timeout_ms: u64,
+}
+pub const DEFAULT_APPROVAL_TIMEOUT_MS: u64 = 120_000;
+/// Newest tool-audit entries kept.
+pub const AUDIT_KEEP: usize = 5_000;
+
+/// One tool decision, as written to the audit log.
+pub struct AuditEntry<'a> {
+    pub user: &'a str,
+    pub thread: &'a str,
+    pub tool: &'a str,
+    pub arguments: &'a Value,
+    pub decision: &'a str,
+    pub rule: Option<usize>,
+    pub reason: &'a str,
+    pub source: &'a str,
+}
+
+/// Who a request acts as. The shared `HIVE_AUTH_TOKEN` is the administrator (and the
+/// first user, as before); a per-user token acts only as that user.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Principal {
+    pub user: String,
+    pub admin: bool,
 }
 
 pub struct Selection {
@@ -50,6 +118,17 @@ pub fn home() -> Result<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".hive")))
         .ok_or("No se pudo resolver HIVE_HOME")?;
     Ok(fs::canonicalize(path)?)
+}
+
+/// The outcome of [`App::resolve`].
+struct Resolved {
+    user: String,
+    agents: Vec<Value>,
+    agent: Value,
+    /// Provider id and model id.
+    pair: (String, String),
+    provider: Value,
+    model: Value,
 }
 
 impl App {
@@ -85,7 +164,7 @@ impl App {
             live_sessions: Mutex::new(HashMap::new()),
             dashboard: crate::dashboard::Runtime::default(),
             office_events: tokio::sync::broadcast::channel(256).0,
-            activity_lock: Mutex::new(()),
+            activity_lock: std::sync::RwLock::new(()),
             db,
             home,
             db_path,
@@ -94,6 +173,21 @@ impl App {
             sessions: Mutex::new(HashMap::new()),
             active: Mutex::new(HashMap::new()),
             store: Arc::new(Mutex::new(Some(store))),
+            user_stores: Mutex::new(HashMap::new()),
+            approvals: Mutex::new(HashMap::new()),
+            chat_approvals: Mutex::new(HashMap::new()),
+            mcp: crate::mcp_servers::new_manager(),
+            mcp_notes: Mutex::new(HashMap::new()),
+            turn_attachments: Mutex::new(HashMap::new()),
+            ocr_grants: Mutex::new(HashMap::new()),
+            oracle: Mutex::new(None),
+            computer: Mutex::new(None),
+            computer_grants: Mutex::new(HashMap::new()),
+            channel_status: Mutex::new(HashMap::new()),
+            channel_wakeup: tokio::sync::Notify::new(),
+            audit_writes: std::sync::atomic::AtomicU64::new(0),
+            limiter: Mutex::new(Default::default()),
+            rate_config: Mutex::new(None),
         })
     }
 
@@ -104,19 +198,313 @@ impl App {
         }))
     }
 
-    pub fn authorized(&self, token: Option<&str>) -> Result<bool> {
-        if !self.has_credentials()? {
-            return Ok(true);
+    /// The configured rate limits, read from HiveDB at most every 3 seconds.
+    fn rate_limits(&self) -> crate::ratelimit::Config {
+        let now = std::time::Instant::now();
+        if let Ok(cache) = self.rate_config.lock()
+            && let Some((at, config)) = *cache
+            && now.duration_since(at) < std::time::Duration::from_secs(3)
+        {
+            return config;
         }
-        Ok(token.is_some_and(|t| bool::from(t.as_bytes().ct_eq(self.token.as_bytes()))))
+        let config = self
+            .db
+            .col_get("rateLimits", "default")
+            .ok()
+            .flatten()
+            .and_then(|row| crate::ratelimit::Config::from_json(&row.doc["limits"]).ok())
+            .unwrap_or_default();
+        if let Ok(mut cache) = self.rate_config.lock() {
+            *cache = Some((now, config));
+        }
+        config
+    }
+
+    /// Forget the cached configuration, so a change applies on the next request.
+    pub fn reload_rate_limits(&self) {
+        if let Ok(mut cache) = self.rate_config.lock() {
+            *cache = None;
+        }
+    }
+
+    /// Count one event of `kind` for `key`. `Err(ms)` means it is over the limit and says how
+    /// long to wait. With no limit configured for the kind, always `Ok`.
+    pub fn limit(&self, kind: crate::ratelimit::Kind, key: &str) -> std::result::Result<(), u64> {
+        let Some(per_minute) = self.rate_limits().limit(kind) else {
+            return Ok(());
+        };
+        let key = format!("{kind:?}:{key}");
+        self.limiter.lock().map_err(|_| 1_000u64)?.check(
+            &key,
+            per_minute,
+            std::time::Instant::now(),
+        )
+    }
+
+    /// Like [`Self::limit`] for `kind`, but only asks: nothing is taken. Used to refuse before
+    /// doing the work a guesser is after, while a caller that succeeds costs nothing.
+    pub fn limit_open(
+        &self,
+        kind: crate::ratelimit::Kind,
+        key: &str,
+    ) -> std::result::Result<(), u64> {
+        let Some(per_minute) = self.rate_limits().limit(kind) else {
+            return Ok(());
+        };
+        let key = format!("{kind:?}:{key}");
+        self.limiter.lock().map_err(|_| 1_000u64)?.available(
+            &key,
+            per_minute,
+            std::time::Instant::now(),
+        )
+    }
+
+    /// The first user: the owner and the identity of the shared token.
+    pub fn owner_id(&self) -> Result<String> {
+        let users = docs(&self.db, "users")?;
+        Ok(string(users.first().ok_or("HiveDB no tiene usuarios")?, "id")?.to_owned())
+    }
+
+    pub fn hash_token(token: &str) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(token.as_bytes()))
+    }
+
+    /// Resolve a bearer token. With no credentials configured the gateway is open
+    /// and acts as the owner. Every user token is compared, in constant time and
+    /// without stopping at the first match, so timing does not reveal which exists.
+    pub fn authenticate(&self, token: Option<&str>) -> Result<Option<Principal>> {
+        let owner = self.owner_id()?;
+        if !self.has_credentials()? {
+            return Ok(Some(Principal {
+                user: owner,
+                admin: true,
+            }));
+        }
+        let Some(token) = token else { return Ok(None) };
+        let mut found = None;
+        let hashed = Self::hash_token(token);
+        for user in docs(&self.db, "users")? {
+            // The user's issued token and every session token a password login gave them.
+            let sessions = user["session_token_hashes"]
+                .as_array()
+                .into_iter()
+                .flatten();
+            let stored = std::iter::once(&user["api_token_hash"]).chain(sessions);
+            for stored in stored
+                .filter_map(Value::as_str)
+                .filter(|hash| !hash.is_empty())
+            {
+                if bool::from(hashed.as_bytes().ct_eq(stored.as_bytes())) {
+                    found = user["id"].as_str().map(str::to_owned);
+                }
+            }
+        }
+        let global = bool::from(token.as_bytes().ct_eq(self.token.as_bytes()));
+        Ok(match (global, found) {
+            (true, _) => Some(Principal {
+                user: owner,
+                admin: true,
+            }),
+            (false, Some(user)) => Some(Principal { user, admin: false }),
+            (false, None) => None,
+        })
+    }
+
+    /// The policy that applies to a user: their own if the administrator set one (it replaces
+    /// the global one for them), else the global one. The second value says which.
+    pub fn tool_policy_for(&self, user: &str) -> Result<Option<(StoredToolPolicy, &'static str)>> {
+        for (key, source) in [
+            (format!("user:{user}"), "user"),
+            ("default".to_owned(), "default"),
+        ] {
+            if let Some(row) = self.db.col_get("toolPolicy", &key)? {
+                return Ok(Some((Self::stored_policy(&row.doc)?, source)));
+            }
+        }
+        Ok(None)
+    }
+
+    fn stored_policy(doc: &Value) -> Result<StoredToolPolicy> {
+        Ok(StoredToolPolicy {
+            policy: hive_agent_core::policy::ToolPolicy::from_value(doc["policy"].clone())?,
+            approval_timeout_ms: doc["approval_timeout_ms"]
+                .as_u64()
+                .unwrap_or(DEFAULT_APPROVAL_TIMEOUT_MS),
+        })
+    }
+
+    /// Append a decision to the tool audit log. Arguments are recorded only as a hash, never
+    /// in the clear. The log keeps the newest `AUDIT_KEEP` entries (checked every 200 writes).
+    pub fn audit_tool(&self, entry: &AuditEntry) -> Result<()> {
+        let AuditEntry {
+            user,
+            thread,
+            tool,
+            arguments,
+            decision,
+            rule,
+            reason,
+            source,
+        } = entry;
+        let now = crate::server::now();
+        // Time, then a per-process sequence, so entries written in the same millisecond keep
+        // their order; the random tail only keeps ids unique across processes.
+        let sequence = self
+            .audit_writes
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let id = format!(
+            "{now:020}-{:010}-{}",
+            sequence,
+            &uuid::Uuid::new_v4().simple().to_string()[..6]
+        );
+        let hash = Self::hash_token(&arguments.to_string());
+        let reason: String = reason.chars().take(300).collect();
+        self.db.col_put(
+            "toolAudit",
+            &id,
+            &json!({"id":id,"at":now,"user":user,"thread":thread,"tool":tool,"decision":decision,
+            "rule":rule,"reason":reason,"policy":source,"arguments_sha256":hash}),
+            hivedb_core::PutOptions {
+                expected_version: Some(0),
+            },
+        )?;
+        if sequence % 200 == 199 {
+            self.prune_audit(AUDIT_KEEP)?;
+        }
+        Ok(())
+    }
+
+    /// Delete all but the newest `keep` audit entries.
+    pub fn prune_audit(&self, keep: usize) -> Result<usize> {
+        let rows = self.db.col_scan(
+            "toolAudit",
+            &hivedb_core::ScanOptions {
+                limit: keep + 5_000,
+                ..Default::default()
+            },
+        )?;
+        let excess = rows.len().saturating_sub(keep);
+        for batch in rows[..excess].chunks(500) {
+            let ops: Vec<_> = batch
+                .iter()
+                .map(|row| hivedb_core::ColOp::Delete {
+                    collection: "toolAudit".into(),
+                    id: row.id.clone(),
+                })
+                .collect();
+            self.db.col_batch(&ops)?;
+        }
+        Ok(excess)
+    }
+
+    /// Newest-first audit entries, optionally for one user and only those before `before`.
+    pub fn list_audit(
+        &self,
+        user: Option<&str>,
+        limit: usize,
+        before: Option<&str>,
+    ) -> Result<Vec<Value>> {
+        let rows = self.db.col_scan(
+            "toolAudit",
+            &hivedb_core::ScanOptions {
+                reverse: true,
+                limit: 5_000,
+                ..Default::default()
+            },
+        )?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| before.is_none_or(|cursor| row.id.as_str() < cursor))
+            .filter(|row| user.is_none_or(|user| row.doc["user"] == user))
+            .take(limit)
+            .map(|row| row.doc)
+            .collect())
+    }
+
+    #[cfg(test)]
+    pub fn tool_policy(&self) -> Result<Option<StoredToolPolicy>> {
+        let Some(row) = self.db.col_get("toolPolicy", "default")? else {
+            return Ok(None);
+        };
+        Ok(Some(StoredToolPolicy {
+            policy: hive_agent_core::policy::ToolPolicy::from_value(row.doc["policy"].clone())?,
+            approval_timeout_ms: row.doc["approval_timeout_ms"]
+                .as_u64()
+                .unwrap_or(DEFAULT_APPROVAL_TIMEOUT_MS),
+        }))
+    }
+
+    /// Answer a pending approval. Only the user whose turn asked (or the administrator)
+    /// can; anyone else gets `false`, indistinguishable from an unknown id.
+    pub fn resolve_approval(
+        &self,
+        id: &str,
+        principal: &Principal,
+        approved: bool,
+    ) -> Result<bool> {
+        let mut pending = self
+            .approvals
+            .lock()
+            .map_err(|_| "Aprobaciones bloqueadas")?;
+        if !pending
+            .get(id)
+            .is_some_and(|entry| principal.admin || entry.user == principal.user)
+        {
+            return Ok(false);
+        }
+        let entry = pending.remove(id).expect("checked above");
+        // The turn may have gone away already; that is not an error.
+        let _ = entry.answer.send(approved);
+        Ok(true)
+    }
+
+    /// The session store of a user: the owner's is `store`, others open on first use.
+    pub fn store_for(&self, user: &str) -> Result<Arc<Mutex<Option<SessionStore>>>> {
+        if user == self.owner_id()? {
+            return Ok(self.store.clone());
+        }
+        if !docs(&self.db, "users")?.iter().any(|row| row["id"] == user) {
+            return Err("Usuario desconocido".into());
+        }
+        let mut stores = self.user_stores.lock().map_err(|_| "Stores bloqueados")?;
+        if let Some(slot) = stores.get(user) {
+            return Ok(slot.clone());
+        }
+        let slot = Arc::new(Mutex::new(Some(SessionStore::from_db(
+            self.db.clone(),
+            user.to_owned(),
+        )?)));
+        stores.insert(user.to_owned(), slot.clone());
+        Ok(slot)
+    }
+
+    /// A cloned handle to the user's store.
+    pub fn store_handle(&self, user: &str) -> Result<SessionStore> {
+        self.store_for(user)?
+            .lock()
+            .map_err(|_| "Store bloqueado")?
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "Store cerrado".into())
     }
 
     pub fn selection(&self) -> Result<Selection> {
-        self.select(None)
+        self.select(None, None)
     }
 
+    #[cfg(test)]
     pub fn selection_for_agent(&self, agent_id: &str) -> Result<Selection> {
-        self.select(Some(agent_id))
+        self.select(None, Some(agent_id))
+    }
+
+    /// The coordinator (or one of the user's workers) of a specific user.
+    pub fn selection_for_user(&self, user: &str) -> Result<Selection> {
+        self.select(Some(user), None)
+    }
+
+    pub fn selection_for_user_agent(&self, user: &str, agent_id: &str) -> Result<Selection> {
+        self.select(Some(user), Some(agent_id))
     }
 
     pub fn delegation_enabled(&self) -> Result<bool> {
@@ -126,9 +514,18 @@ impl App {
             .is_none_or(|tool| tool.doc["enabled"] != false && tool.doc["active"] != false))
     }
 
-    fn select(&self, requested: Option<&str>) -> Result<Selection> {
+    /// Who answers and with which model, checked against HiveDB: the user, the agent (a coordinator, or one of the
+    /// user's workers), its provider and its model. Nothing is built from them here.
+    fn resolve(&self, for_user: Option<&str>, requested: Option<&str>) -> Result<Resolved> {
         let users = docs(&self.db, "users")?;
-        let user = string(users.first().ok_or("HiveDB no tiene usuarios")?, "id")?.to_owned();
+        let user = match for_user {
+            Some(user) => users
+                .iter()
+                .find(|row| row["id"] == user)
+                .ok_or("Usuario desconocido")?,
+            None => users.first().ok_or("HiveDB no tiene usuarios")?,
+        };
+        let user = string(user, "id")?.to_owned();
         let agents = docs(&self.db, "agents")?;
         let coordinator = agents
             .iter()
@@ -197,53 +594,58 @@ impl App {
                 pair.0, pair.1, models.iter().find(|m| m["id"] == pair.1).map(|m|
                     json!({"provider_id":m["provider_id"],"enabled":m["enabled"],"active":m["active"]}).to_string())
                     .unwrap_or_else(|| "ausente".into())))?;
-        let base = provider_endpoint(&pair.0, provider["base_url"].as_str())?;
-        let kind = match pair.0.as_str() {
-            "anthropic" => "anthropic",
-            "gemini" => "gemini",
-            "hiveagents" => "hiveagents",
-            "ollama" => {
-                return Err("Ollama nativo todavía no está adaptado; configura un proveedor OpenAI compatible en HiveDB".into());
-            }
-            _ => "openai_compatible",
-        };
+        Ok(Resolved {
+            user,
+            agents,
+            agent,
+            pair,
+            provider: provider.clone(),
+            model: model.clone(),
+        })
+    }
+
+    /// Whether a conversation could start: everything `select` checks about who answers and with which model,
+    /// plus that the provider's address is valid and its key and headers can be read. It does not build the
+    /// provider's HTTP client, the tool list or the engine configuration, which is most of what `select` costs.
+    pub fn configured(&self) -> Result<()> {
+        let resolved = self.resolve(None, None)?;
+        provider_endpoint(&resolved.pair.0, resolved.provider["base_url"].as_str())?;
+        self.provider_secrets(&resolved.pair.0)?;
+        Ok(())
+    }
+
+    /// The provider's API key and extra headers, decrypted.
+    fn provider_secrets(
+        &self,
+        provider_id: &str,
+    ) -> Result<(Option<String>, HashMap<String, String>)> {
         let key = secret(
             &self.db,
             &self.home,
-            &format!("provider:{}:api_key", pair.0),
+            &format!("provider:{provider_id}:api_key"),
         )?;
-        let mut headers = secret(
+        let headers = secret(
             &self.db,
             &self.home,
-            &format!("provider:{}:headers", pair.0),
+            &format!("provider:{provider_id}:headers"),
         )?
         .map(|s| serde_json::from_str::<HashMap<String, String>>(&s))
         .transpose()?
         .unwrap_or_default();
-        // Hive's Anthropic adapter uses API-key authentication rather than OAuth bearer tokens.
-        let transport_key = if kind == "anthropic" {
-            if let Some(key) = &key {
-                headers.insert("x-api-key".into(), key.clone());
-            }
-            None
-        } else {
-            key
-        };
-        // Match Hive's agent-loop LLM_CALL_TIMEOUT_MS: every model operation
-        // gets three minutes, including managed backend preparation.
-        let mut transport = json!({"kind":kind, "base_url":base, "api_key":transport_key,
-            "timeout_ms":180000});
-        if kind == "hiveagents" {
-            transport["context_window"] = json!(hiveagents_context(provider, model));
-        }
-        if kind == "openai_compatible" {
-            transport["output_token_parameter"] = json!(if pair.0 == "openai" {
-                "max_completion_tokens"
-            } else {
-                "max_tokens"
-            });
-        }
-        let native = NativeProvider::from_json(&transport.to_string())?.with_headers(headers)?;
+        Ok((key, headers))
+    }
+
+    fn select(&self, for_user: Option<&str>, requested: Option<&str>) -> Result<Selection> {
+        let Resolved {
+            user,
+            agents,
+            agent,
+            pair,
+            provider,
+            model,
+        } = self.resolve(for_user, requested)?;
+        let (provider, model) = (&provider, &model);
+        let native = self.build_provider(&pair.0, provider, model)?;
         let workers: Vec<Value> = agents
             .iter()
             .filter(|a| enabled_worker(a, &user))
@@ -254,6 +656,7 @@ impl App {
             .unwrap_or_default()
             .to_owned();
         let mut tools = Vec::new();
+        let mut computer = false;
         if requested.is_none() && !workers.is_empty() && self.delegation_enabled()? {
             tools.push(json!({"name":"task_delegate","description":"Consulta de texto a un especialista habilitado. Espera su resultado antes de responder al usuario. No ejecuta herramientas externas.",
                 "parameters":{"type":"object","additionalProperties":false,"required":["worker_id","task_description"],
@@ -287,12 +690,38 @@ impl App {
                     tools.push(tool);
                 }
             }
+            let mcp_tools = crate::mcp_servers::tool_specs(self);
+            if !mcp_tools.is_empty() {
+                system.push_str(&format!("\nTienes {} herramientas de servidores MCP externos (prefijo mcp_). Úsalas cuando la petición lo requiera. Las que envían, crean, modifican o cancelan algo actúan sobre cuentas reales: antes de usarlas confirma con la persona los datos importantes (destinatario, fechas, contenido) y no repitas una acción cuyo resultado sea incierto.", mcp_tools.len()));
+                tools.extend(mcp_tools);
+            }
+            if let Some(offer) = crate::ocr::offer(self) {
+                system.push_str(&offer.guidance);
+                tools.push(offer.tool);
+            }
+            if let Some(offer) = crate::computer::offer(self, model)? {
+                system.push_str(&offer.guidance);
+                tools.extend(offer.tools);
+                computer = true;
+            }
             system.push_str("\nPuedes crear formularios y tarjetas en el Panel interactivo con las herramientas a2ui. Crea la superficie, envía componentes completos con raíz root y datos enlazados. Las acciones de los botones llegarán como un nuevo turno. No afirmes que una acción externa se ejecutó por mostrar un panel.");
         }
         let policy = turn_policy(&agent, workers.len())?;
-        let engine_config = json!({"op":"create", "model":wire_model(&pair.0, string(model, "id")?),
-            "system":system, "tools":tools, "max_turns":agent_iterations(&agent)?,
-            "policy":{"max_output_tokens":output_cap(provider, model),"max_tool_calls":policy.max_tool_calls}}).to_string();
+        let mut engine_policy = json!({"max_output_tokens":output_cap(provider, model),"max_tool_calls":policy.max_tool_calls});
+        let mut max_turns = agent_iterations(&agent)?;
+        if computer {
+            // Each action is a tool call and a model call; screenshots reach the model as images.
+            let extra = self.computer_extra_calls();
+            engine_policy["max_tool_calls"] = json!(policy.max_tool_calls.saturating_add(extra));
+            engine_policy["image_tools"] = json!(["computer_screenshot"]);
+            engine_policy["max_tool_images"] = json!(2);
+            max_turns = max_turns.saturating_add(extra);
+        }
+        let engine_config =
+            json!({"op":"create", "model":wire_model(&pair.0, string(model, "id")?),
+            "system":system, "tools":tools, "max_turns":max_turns,
+            "policy":engine_policy})
+            .to_string();
         Ok(Selection {
             provider_id: pair.0,
             model_id: pair.1,
@@ -301,6 +730,67 @@ impl App {
             provider: native,
             engine_config,
         })
+    }
+
+    /// The SDK provider for a HiveDB provider row and one of its model rows: endpoint, key and
+    /// headers from the secrets, and the model's context window.
+    pub(crate) fn build_provider(
+        &self,
+        provider_id: &str,
+        provider: &Value,
+        model: &Value,
+    ) -> Result<NativeProvider> {
+        let mut base = provider_endpoint(provider_id, provider["base_url"].as_str())?;
+        if provider_id == "ollama" {
+            base = ollama_api(&base);
+        }
+        let kind = match provider_id {
+            "anthropic" => "anthropic",
+            "gemini" => "gemini",
+            "hiveagents" => "hiveagents",
+            // Ollama's own API, not its OpenAI-compatible one: it is the one that takes the context size.
+            "ollama" => "ollama",
+            _ => "openai_compatible",
+        };
+        let (key, mut headers) = self.provider_secrets(provider_id)?;
+        // Hive's Anthropic adapter uses API-key authentication rather than OAuth bearer tokens.
+        let transport_key = if kind == "anthropic" {
+            if let Some(key) = &key {
+                headers.insert("x-api-key".into(), key.clone());
+            }
+            None
+        } else {
+            key
+        };
+        // Match Hive's agent-loop LLM_CALL_TIMEOUT_MS: every model operation
+        // gets three minutes, including managed backend preparation.
+        let mut transport = json!({"kind":kind, "base_url":base, "api_key":transport_key,
+            "timeout_ms":180000});
+        if kind == "hiveagents" {
+            transport["context_window"] = json!(hiveagents_context(provider, model));
+        } else if let Some(context) = model_context(provider, model) {
+            // The model's own context window from HiveDB reaches the provider, which derives its
+            // output limit from it whenever a request names none.
+            transport["context_window"] = json!(context);
+        }
+        if kind == "ollama" {
+            // Without num_ctx Ollama silently cuts the prompt to its default window.
+            if let Some(context) = ollama_num_ctx(provider, model) {
+                transport["num_ctx"] = json!(context);
+            }
+            // Local Ollama needs no key, and a null one means "none".
+            if transport["api_key"].is_null() {
+                transport.as_object_mut().map(|t| t.remove("api_key"));
+            }
+        }
+        if kind == "openai_compatible" {
+            transport["output_token_parameter"] = json!(if provider_id == "openai" {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            });
+        }
+        Ok(NativeProvider::from_json(&transport.to_string())?.with_headers(headers)?)
     }
 
     pub fn session(&self, thread: &str, selection: &Selection) -> Result<Arc<DurableEngineHandle>> {
@@ -334,7 +824,7 @@ impl App {
                 .collect::<Vec<_>>()
         );
         let handle = Arc::new(DurableEngineHandle::open(
-            self.store.clone(),
+            self.store_for(&selection.user)?,
             string(&selection.agent, "id")?.to_owned(),
             thread.to_owned(),
             &initial.to_string(),
@@ -399,6 +889,15 @@ pub fn turn_policy(agent: &Value, worker_count: usize) -> Result<ObjectivePolicy
     })
 }
 
+/// A turn that may control the desktop needs a tool call and a model call per action on top of its usual budget.
+pub fn with_computer_budget(mut policy: ObjectivePolicy, extra: u32) -> ObjectivePolicy {
+    policy.max_tool_calls = policy.max_tool_calls.saturating_add(extra);
+    policy.max_model_calls = policy.max_model_calls.saturating_add(extra);
+    policy.max_total_output_tokens =
+        MAX_OUTPUT_TOKENS.saturating_mul(u64::from(policy.max_model_calls));
+    policy
+}
+
 fn hiveagents_context(provider: &Value, model: &Value) -> u64 {
     model_context(provider, model).unwrap_or(50_000)
 }
@@ -409,6 +908,24 @@ fn output_cap(provider: &Value, model: &Value) -> u64 {
     model_context(provider, model)
         .map(|context| (context.saturating_mul(15) / 100).clamp(1, MAX_OUTPUT_TOKENS))
         .unwrap_or(4096)
+}
+
+/// The largest `num_ctx` asked of Ollama on the strength of a model's context window alone. A model
+/// may support 262144 tokens, but asking for all of it reserves memory for a cache that size, which
+/// a local machine often does not have; an operator who wants more sets `num_ctx` on the provider.
+const OLLAMA_DEFAULT_CTX_CEILING: u64 = 32_768;
+
+/// The window to ask Ollama for: the provider's own `num_ctx` (an explicit operator choice, never
+/// above what the model supports), else the model's context window from HiveDB up to a ceiling.
+fn ollama_num_ctx(provider: &Value, model: &Value) -> Option<u64> {
+    let explicit = provider["num_ctx"].as_u64().filter(|n| *n > 0);
+    let supported = model["context_window"].as_u64().filter(|n| *n > 0);
+    match (explicit, supported) {
+        (Some(wanted), Some(max)) => Some(wanted.min(max)),
+        (Some(wanted), None) => Some(wanted),
+        (None, Some(max)) => Some(max.min(OLLAMA_DEFAULT_CTX_CEILING)),
+        (None, None) => None,
+    }
 }
 
 fn model_context(provider: &Value, model: &Value) -> Option<u64> {
@@ -450,6 +967,16 @@ pub fn wire_model<'a>(provider: &str, model: &'a str) -> &'a str {
 
 /// Hive's Gemini adapter defaults its null base URL; native transports need a
 /// versioned endpoint. Anthropic's catalog stores the API root without /v1.
+/// `http://host:11434`, `.../v1` and `.../api` all name the same server; the native API lives under `/api`.
+fn ollama_api(base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    let base = base
+        .strip_suffix("/v1")
+        .or_else(|| base.strip_suffix("/api"))
+        .unwrap_or(base);
+    format!("{}/api", base.trim_end_matches('/'))
+}
+
 pub fn provider_endpoint(provider: &str, base: Option<&str>) -> Result<String> {
     let base = base.filter(|s| !s.trim().is_empty()).map(str::trim);
     let (base, version) = match provider {
@@ -472,6 +999,9 @@ pub fn provider_endpoint(provider: &str, base: Option<&str>) -> Result<String> {
     })
 }
 
+/// The profile's master key. Finding it can mean a round trip to the system keyring (D-Bus and a key
+/// exchange: milliseconds), and every secret read needs it, so a key that was found is kept for the life of the
+/// process, per profile. A key that was not found is looked for again next time.
 fn master_key(home: &Path) -> Result<Option<Vec<u8>>> {
     if let Ok(key) = std::env::var("HIVE_MASTER_KEY")
         && !key.is_empty()
@@ -479,6 +1009,24 @@ fn master_key(home: &Path) -> Result<Option<Vec<u8>>> {
         // crypto.ts uses UTF-8 of slice(0,32).padEnd(32,"0"), not hexadecimal.
         return Ok(Some(environment_master_key(&key)?));
     }
+    static KEYS: std::sync::OnceLock<Mutex<HashMap<PathBuf, Vec<u8>>>> = std::sync::OnceLock::new();
+    let cache = KEYS.get_or_init(Default::default);
+    let profile = fs::canonicalize(home)?;
+    if let Some(key) = cache
+        .lock()
+        .ok()
+        .and_then(|keys| keys.get(&profile).cloned())
+    {
+        return Ok(Some(key));
+    }
+    let found = read_master_key(home)?;
+    if let (Some(key), Ok(mut keys)) = (&found, cache.lock()) {
+        keys.insert(profile, key.clone());
+    }
+    Ok(found)
+}
+
+fn read_master_key(home: &Path) -> Result<Option<Vec<u8>>> {
     let digest = hex::encode(Sha256::digest(
         fs::canonicalize(home)?.to_string_lossy().as_bytes(),
     ));
@@ -658,6 +1206,43 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
         let value = crypt(password_c.as_ptr(), hash_c.as_ptr());
         Ok(!value.is_null() && bool::from(CStr::from_ptr(value).to_bytes().ct_eq(hash.as_bytes())))
     }
+}
+
+/// For a copy made to test or measure: nothing in it may reach a real service on its own. MCP servers are turned
+/// off, scheduled tasks paused and every channel except the built-in web chat turned off (the copy still holds
+/// their tokens, and a gateway started on it would otherwise connect to the real bots). Returns what was changed.
+pub fn neutralize_home(target: &Path) -> Result<Vec<String>> {
+    let db = HiveDB::open(target.join("data/hivedb"))?;
+    let mut changed = vec![];
+    for row in docs(&db, "mcpServers")? {
+        let id = string(&row, "id")?.to_owned();
+        if row["enabled"] == true {
+            let mut next = row.clone();
+            next["enabled"] = json!(false);
+            db.col_put("mcpServers", &id, &next, Default::default())?;
+            changed.push(format!("servidor MCP {id}: apagado"));
+        }
+    }
+    for row in docs(&db, "cronJobs")? {
+        let id = string(&row, "id")?.to_owned();
+        if row["status"] == "active" {
+            let mut next = row.clone();
+            next["status"] = json!("paused");
+            db.col_put("cronJobs", &id, &next, Default::default())?;
+            changed.push(format!("tarea programada {id}: en pausa"));
+        }
+    }
+    for row in docs(&db, "channels")? {
+        let id = string(&row, "id")?.to_owned();
+        if id != "webchat" && (row["enabled"] == true || row["active"] == true) {
+            let mut next = row.clone();
+            next["enabled"] = json!(false);
+            next["active"] = json!(false);
+            db.col_put("channels", &id, &next, Default::default())?;
+            changed.push(format!("canal {id}: apagado"));
+        }
+    }
+    Ok(changed)
 }
 
 pub fn copy_home(source: &Path, target: &Path) -> Result<()> {
@@ -851,5 +1436,68 @@ mod key_tests {
             super::environment_master_key("abcdefghijklmnopqrstuvwxyz0123456789").unwrap(),
             b"abcdefghijklmnopqrstuvwxyz012345"
         );
+    }
+}
+
+#[cfg(test)]
+mod ollama_tests {
+    #[test]
+    fn every_way_of_naming_an_ollama_server_ends_at_its_native_api() {
+        for base in [
+            "http://localhost:11434",
+            "http://localhost:11434/",
+            "http://localhost:11434/v1",
+            "http://localhost:11434/v1/",
+            "http://localhost:11434/api",
+            "http://localhost:11434/api/",
+        ] {
+            assert_eq!(
+                super::ollama_api(base),
+                "http://localhost:11434/api",
+                "{base}"
+            );
+        }
+        assert_eq!(
+            super::ollama_api("https://host.example/ollama"),
+            "https://host.example/ollama/api"
+        );
+    }
+}
+
+#[cfg(test)]
+mod ollama_ctx_tests {
+    use serde_json::json;
+    #[test]
+    fn ollama_is_asked_for_the_models_window_up_to_a_ceiling_unless_the_operator_chose_one() {
+        let model = |ctx: u64| json!({"context_window":ctx});
+        // The model's window from HiveDB, but never an enormous one by default.
+        assert_eq!(
+            super::ollama_num_ctx(&json!({}), &model(8_192)),
+            Some(8_192)
+        );
+        assert_eq!(
+            super::ollama_num_ctx(&json!({}), &model(262_144)),
+            Some(32_768)
+        );
+        // The operator's explicit choice wins over the ceiling, but not over what the model supports.
+        assert_eq!(
+            super::ollama_num_ctx(&json!({"num_ctx":65_536}), &model(262_144)),
+            Some(65_536)
+        );
+        assert_eq!(
+            super::ollama_num_ctx(&json!({"num_ctx":65_536}), &model(16_384)),
+            Some(16_384)
+        );
+        assert_eq!(
+            super::ollama_num_ctx(&json!({"num_ctx":8_192}), &model(262_144)),
+            Some(8_192)
+        );
+        // A model row without a window: the operator's, or none.
+        assert_eq!(
+            super::ollama_num_ctx(&json!({"num_ctx":8_192}), &json!({})),
+            Some(8_192)
+        );
+        assert_eq!(super::ollama_num_ctx(&json!({}), &json!({})), None);
+        assert_eq!(super::ollama_num_ctx(&json!({}), &model(0)), None);
     }
 }

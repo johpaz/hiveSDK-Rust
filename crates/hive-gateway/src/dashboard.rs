@@ -305,7 +305,7 @@ fn backfill_activity(app: &App) -> Result<()> {
     }
     let _guard = app
         .activity_lock
-        .lock()
+        .write()
         .map_err(|_| "Actividad bloqueada")?;
     for mut link in app
         .db
@@ -348,7 +348,7 @@ pub fn record_usage(
 ) -> Result<()> {
     let _guard = app
         .activity_lock
-        .lock()
+        .write()
         .map_err(|_| "Actividad bloqueada")?;
     let id = format!("rust:{execution}");
     if app.db.col_get("usageRecords", &id)?.is_some() {

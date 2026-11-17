@@ -125,3 +125,36 @@ test('future watcher waits for its date and deadline stops idle work without eff
   idle.enable(); await assert.rejects(Array.fromAsync(idle.watch()), /DEADLINE|OBJECTIVE_LIMIT/);
   assert.equal(limited.inspect().tool_calls, 0); assert.equal(idle.cancel(), false);
 });
+
+test('a cron trigger claims its latest due occurrence once, in its zone, and rejects invalid expressions', async () => {
+  const objective = new Objective(); const inputs = [];
+  const trigger = objective.trigger('cron', { kind: 'cron', expression: '* * * * * *', timezone: 'America/Bogota' }, value => { inputs.push(value); return 'done'; });
+  assert.deepEqual(trigger.inspect().schedule, { kind: 'cron', expression: '* * * * * *', timezone: 'America/Bogota', dom_and_dow: false });
+  assert.equal(await trigger.tick(), null, 'disabled triggers never claim');
+  trigger.enable();
+  assert.equal(await trigger.tick(), null, 'the first occurrence is not due yet');
+  await new Promise(resolve => setTimeout(resolve, 1300));
+  assert.equal((await trigger.tick()).result, 'done');
+  assert.equal(inputs.length, 1);
+  assert.ok(inputs[0].scheduled_for_unix_ms <= inputs[0].observed_unix_ms && inputs[0].skipped_is_lower_bound === undefined);
+  assert.ok(trigger.inspect().next_due_unix_ms > inputs[0].observed_unix_ms - 1000);
+  assert.equal(objective.inspect().tool_calls, 1);
+  for (const schedule of [{ kind: 'cron', expression: '80 * * * *', timezone: 'UTC' }, { kind: 'cron', expression: '* * * * *', timezone: 'Mars/Base' }, { kind: 'cron', expression: '', timezone: 'UTC' }]) {
+    assert.throws(() => objective.trigger('bad', schedule, () => null), /cron|schedule|timezone|zone/i, JSON.stringify(schedule));
+  }
+});
+
+test('a cron trigger and its next occurrence survive reopening the store', async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'hive-trigger-cron-')); let store;
+  try {
+    store = new SessionStore({ path: directory }); let objective = new Objective({}, { store, id: 'root' });
+    let trigger = objective.trigger('daily', { kind: 'cron', expression: '0 8 * * *', timezone: 'America/Bogota' }, () => 'work');
+    trigger.enable(); const before = trigger.inspect();
+    assert.equal(before.next_due_unix_ms % 86_400_000, 13 * 3_600_000, '08:00 in Bogota is 13:00 UTC');
+    store.close();
+    store = new SessionStore({ path: directory }); objective = new Objective({}, { store, id: 'root' });
+    trigger = objective.trigger('daily', { kind: 'cron', expression: '0 8 * * *', timezone: 'America/Bogota' }, () => assert.fail('not due'));
+    assert.deepEqual(trigger.inspect(), before); assert.equal(await trigger.tick(), null);
+    assert.throws(() => objective.trigger('daily', { kind: 'cron', expression: '0 9 * * *', timezone: 'America/Bogota' }, () => null), /schedule/);
+  } finally { store?.close(); rmSync(directory, { recursive: true, force: true }); }
+});

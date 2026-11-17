@@ -51,6 +51,7 @@ pub(crate) fn route(
     path: &str,
     raw_query: &str,
     body: &[u8],
+    acting_as: &str,
 ) -> Result<Reply> {
     let supported = matches!(
         path,
@@ -87,11 +88,27 @@ pub(crate) fn route(
             Err(e) => (400, json!({"ok":false,"error":e.to_string()})),
         }));
     }
-    let _guard = app
-        .activity_lock
-        .lock()
-        .map_err(|_| "Configuración bloqueada")?;
-    let user = owner(app)?;
+    // Reads (GET) run side by side; anything that changes configuration is exclusive.
+    let (_shared, _exclusive) = if method == "GET" {
+        (
+            Some(
+                app.activity_lock
+                    .read()
+                    .map_err(|_| "Configuración bloqueada")?,
+            ),
+            None,
+        )
+    } else {
+        (
+            None,
+            Some(
+                app.activity_lock
+                    .write()
+                    .map_err(|_| "Configuración bloqueada")?,
+            ),
+        )
+    };
+    let user = acting_as.to_owned();
     let query = server::query(raw_query)?;
     let body = parse(body)?;
     if method == "GET" {
@@ -132,8 +149,13 @@ pub(crate) fn route(
                 return ok(json!({"channels":rows}));
             }
             "/api/tools" => {
+                // The runtime's tool names are built once for the whole list, not once per row.
+                let runtime: std::collections::HashSet<String> = crate::panel::specs()
+                    .iter()
+                    .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+                    .collect();
                 return ok(
-                    json!({"tools":config::docs(&app.db,"tools")?.iter().map(|row|json!({"id":row["id"],"name":row["name"],"description":row["description"],"category":row["category"],"enabled":row["enabled"],"active":row["active"],"runtime_available":row["id"]=="task_delegate" || row["id"].as_str().is_some_and(|id|crate::panel::specs().iter().any(|tool|tool["name"]==id))})).collect::<Vec<_>>()}),
+                    json!({"tools":config::docs(&app.db,"tools")?.iter().map(|row|json!({"id":row["id"],"name":row["name"],"description":row["description"],"category":row["category"],"enabled":row["enabled"],"active":row["active"],"runtime_available":row["id"]=="task_delegate" || row["id"].as_str().is_some_and(|id|runtime.contains(id))})).collect::<Vec<_>>()}),
                 );
             }
             "/api/skills" => {
@@ -154,8 +176,7 @@ pub(crate) fn route(
             }
             "/api/ethics" => return ok(json!({"ethics":config::docs(&app.db,"ethics")?})),
             "/api/mcp/servers" => {
-                let rows=config::docs(&app.db,"mcpServers")?.into_iter().map(|r|json!({"id":r["id"],"name":r["name"],"enabled":r["enabled"]==true,"status":"disconnected","tools_count":0,"tools":[],"config":{"transport":r["transport"],"url":r["url"].as_str().map(crate::integrations::safe_url)}})).collect::<Vec<_>>();
-                return ok(json!(rows));
+                return ok(json!(crate::mcp_servers::status_rows(app)));
             }
             "/api/users" => {
                 let rows=config::docs(&app.db,"users")?.into_iter().filter(|r|r["id"]==user).map(|r|json!({"id":r["id"],"name":r["name"],"email":r["email"],"language":r["language"],"timezone":r["timezone"],"occupation":r["occupation"],"notes":r["notes"],"preferred_cron_channel":r["preferred_cron_channel"]})).collect::<Vec<_>>();
@@ -241,7 +262,7 @@ pub(crate) fn route(
         let Some(kind) = body["type"].as_str().filter(|s| {
             matches!(
                 *s,
-                "telegram" | "discord" | "whatsapp" | "slack" | "webchat"
+                "telegram" | "discord" | "whatsapp" | "whatsapp_qr" | "slack" | "webchat"
             )
         }) else {
             return fail(400, "Tipo de canal inválido");
@@ -407,6 +428,21 @@ pub(crate) fn route(
                     &body["config"].to_string(),
                 )?;
             }
+            // Telegram, Discord, Slack and WhatsApp have adapters: apply the new configuration now.
+            if let Some(row) = app.db.col_get("channels", &id)?
+                && matches!(
+                    row.doc["type"].as_str(),
+                    Some("telegram" | "discord" | "slack" | "whatsapp" | "whatsapp_qr")
+                )
+            {
+                app.channel_wakeup.notify_one();
+                if row.doc["type"] == "whatsapp" {
+                    return ok(
+                        json!({"ok":true,"status":crate::whatsapp::status(app,&id)["status"]}),
+                    );
+                }
+                return ok(json!({"ok":true,"status":"connecting"}));
+            }
             return fail(
                 409,
                 "Configuración guardada. El adaptador de conexión de este canal aún no está disponible en Rust",
@@ -420,6 +456,21 @@ pub(crate) fn route(
                 .is_some_and(|row| owned(&row.doc, &user))
             {
                 return fail(404, "Canal desconocido");
+            }
+            if app
+                .db
+                .col_get("channels", &concrete)?
+                .is_some_and(|row| row.doc["type"] == "whatsapp")
+            {
+                return ok(crate::whatsapp::status(app, &concrete));
+            }
+            if let Some(live) = app
+                .channel_status
+                .lock()
+                .map_err(|_| "Estado de canales bloqueado")?
+                .get(&concrete)
+            {
+                return ok(live.clone());
             }
             return ok(
                 json!({"status":"disconnected","error":"Adaptador de canal pendiente en Rust"}),

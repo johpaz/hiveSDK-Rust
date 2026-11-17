@@ -374,3 +374,118 @@ async fn subprocess_environment_is_limited_and_explicit_overrides_are_supported(
     }
     client.close().await;
 }
+
+#[tokio::test]
+async fn a_server_that_changes_its_tools_is_noticed_and_refreshed_without_disturbing_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = connect("mutating", &dir.path().join("calls"), json!({}))
+        .await
+        .unwrap();
+    let names = |client: &std::sync::Arc<McpClient>| -> Vec<String> {
+        client.tools().iter().map(|t| t.name.clone()).collect()
+    };
+    assert_eq!(names(&client), ["add", "echo"]);
+    assert!(!client.tools_changed(), "nothing announced yet");
+    // Refreshing with nothing changed is a no-op diff and leaves the catalog as it was.
+    let same = client.refresh_tools().await.unwrap();
+    assert_eq!(same, json!({"added":[],"removed":[],"changed":[]}));
+    // The server announces a change while it answers a call; the call itself is unaffected.
+    let answer = client
+        .start_call("echo".into(), json!({"value":"mutate"}), json!({}))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(answer["structuredContent"]["value"], "mutate");
+    assert!(
+        client.tools_changed(),
+        "the announcement is seen with the reply that carried it"
+    );
+    assert_eq!(
+        names(&client),
+        ["add", "echo"],
+        "the catalog does not change by itself: an Agent keeps its tools"
+    );
+    // Refreshing lists again, says what is different, adopts the new list and clears the flag.
+    let diff = client.refresh_tools().await.unwrap();
+    assert_eq!(
+        diff,
+        json!({"added":["extra"],"removed":[],"changed":["add"]})
+    );
+    assert!(!client.tools_changed());
+    assert_eq!(names(&client), ["add", "echo", "extra"]);
+    assert_eq!(
+        client
+            .tools()
+            .iter()
+            .find(|t| t.name == "add")
+            .unwrap()
+            .description,
+        "Add integers (v2)"
+    );
+    // The new tool can be called; one that is gone from the list cannot (it is not in the catalog).
+    let extra = client
+        .start_call("extra".into(), json!({"value":1}), json!({}))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(extra["structuredContent"]["value"], 1);
+    assert!(
+        client
+            .start_call("missing".into(), json!({}), json!({}))
+            .is_err()
+    );
+    // A closed client refuses.
+    client.close().await;
+    assert!(client.refresh_tools().await.is_err());
+    // A server that offers no tools (only resources and prompts) has nothing to refresh.
+    let none = connect("catalog", &dir.path().join("calls2"), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(
+        none.refresh_tools().await.unwrap(),
+        json!({"added":[],"removed":[],"changed":[]})
+    );
+}
+
+#[tokio::test]
+async fn a_refresh_never_interleaves_with_a_running_call_on_the_same_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = connect(
+        "slow",
+        &dir.path().join("calls"),
+        json!({"timeout_ms":5000}),
+    )
+    .await
+    .unwrap();
+    let running = client
+        .start_call("echo".into(), json!({"value":"x"}), json!({}))
+        .unwrap();
+    let refused = client.refresh_tools().await.unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("already has an active request"),
+        "{refused}"
+    );
+    assert_eq!(
+        running.result().await.unwrap()["structuredContent"]["value"],
+        "x",
+        "the call is unaffected"
+    );
+    // Once it is done the connection is free again.
+    assert_eq!(
+        client.refresh_tools().await.unwrap(),
+        json!({"added":[],"removed":[],"changed":[]})
+    );
+    assert!(
+        client
+            .start_call("echo".into(), json!({"value":"y"}), json!({}))
+            .unwrap()
+            .result()
+            .await
+            .is_ok()
+    );
+    client.close().await;
+}

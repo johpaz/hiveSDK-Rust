@@ -54,3 +54,15 @@ Gemini solo mapea datos en línea: los `fileData` apuntan a la API de archivos, 
 ## Evidencia
 
 `crates/hive-core/tests/media.rs` (10 pruebas: validación, forma de cable sin cambios para texto, tres adaptadores con sus rechazos, solo rol user, presupuesto fijo independiente del tamaño del payload en los cuatro framings, parada por presupuesto, sesión durable y comando serde string/objeto) y `packages/{npm,python}` (4 pruebas cada uno: proveedor recibe adjuntos, validación previa, presupuesto, reapertura de sesión). No se ejecutó contra los servicios reales de OpenAI, Anthropic o Gemini; los cuerpos se comprueban contra la forma documentada de cada API, no contra una respuesta real.
+
+## HiveLive: voz en vivo, visión y pantalla compartida (gateway `/realtime`)
+
+El gateway puentea una sesión de voz con Gemini Live (`gemini-3.8-live`): audio PCM16 a 16 kHz del micrófono, PCM a 24 kHz de vuelta, texto y fotogramas JPEG, con transcripciones de ambos lados, interrupción (`interrupt`) y herramientas (`consultar_a_bee`, `estado_de_la_colmena`, `cancelar_tarea`).
+
+- **Fotogramas de vídeo** (`{"type":"video","data":<base64>,"mimeType":"image/jpeg","source":"camera"|"screen"}`): solo JPEG, hasta 768 KiB. **Un fotograma inválido** (no JPEG, `mimeType` o `source` desconocidos, base64 malo, sin datos o demasiado grande) **devuelve `{"type":"error","error":…}` y la llamada sigue**; antes terminaba la sesión entera, y con una cámara enviando un fotograma por segundo uno corrupto habría colgado la conversación. Un mensaje que excede el límite del propio WebSocket sigue cerrando la conexión (el escritorio envía cámara a 640 px y pantalla a 1280 px, 1 por segundo, muy por debajo).
+- **`source` no se reenvía a Gemini**: la cámara y la pantalla llegan como el mismo flujo de vídeo y el modelo las distingue por el contenido y por lo que se le pide. Funciona bien con escenas distintas, pero si una cámara apuntara a un monitor sería ambiguo; marcar el origen con una nota de texto sería una mejora posible, no hecha.
+
+**Validación real (2026-11-16)**, con la clave de Gemini del usuario sobre una copia de su perfil y voces/imágenes sintéticas, **sin micrófono, altavoces ni cámara reales**: sesión lista en 0,5 s; texto→voz (primer audio a 0,8 s); voz→texto→voz con transcripción de ambos lados e interrupción; `estado_de_la_colmena` («hay doce especialistas», los 12 agentes del perfil) y `consultar_a_bee` con el coordinador real (17 × 23 = 391, dicho en voz); **cámara** (describió un triángulo azul y un círculo rojo sobre una base café), **pantalla compartida** (describió la página de ajustes de Hive) y **ambas a la vez** (las distinguió). Con el audio sintético por defecto de `espeak` no reaccionó: la voz robótica no se detectó como habla.
+
+**No probado:** voz humana real y eco, rendimiento sostenido, vídeo continuo de varios minutos, el escritorio y el gateway juntos.
+

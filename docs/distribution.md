@@ -50,3 +50,6 @@ Los workflows asumen que esta carpeta es la raíz del repositorio. Si se aloja d
 Queda pendiente completar licencias/avisos de dependencias enlazadas, construir y probar toda la matriz, verificar instalaciones desde registros y coordinar la publicación de crates. La dependencia Git fijada de HiveDB también debe resolverse antes de publicar el crate del motor en crates.io. `private: true` se conserva hasta tener los artefactos y validaciones necesarios. La preparación de workflows no equivale a haber ejecutado sus jobs.
 
 Referencias de implementación: [Maturin Action](https://github.com/PyO3/maturin-action), [runners disponibles](https://github.com/actions/runner-images) y [actionlint](https://github.com/rhysd/actionlint).
+
+## Binario del gateway
+Además de los paquetes de npm y PyPI, el release adjunta el gateway como ejecutable independiente en cinco plataformas; ver [gateway-binary.md](gateway-binary.md).

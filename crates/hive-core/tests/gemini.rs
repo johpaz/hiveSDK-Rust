@@ -157,7 +157,9 @@ fn sse_waits_for_clean_eof_and_merges_usage_snapshots_without_duplicate_consumpt
     let response = acc.finish().unwrap();
     assert_eq!(response.content.as_deref(), Some("A🐝"));
     assert_eq!(response.usage.unwrap().output_tokens, 4);
-    let ProviderState::Gemini { parts, .. } = response.provider_state.unwrap();
+    let Some(ProviderState::Gemini { parts, .. }) = response.provider_state else {
+        panic!("a Gemini reply carries Gemini state");
+    };
     assert_eq!(parts.len(), 2);
     assert_eq!(parts[1]["thoughtSignature"], "tail");
 }

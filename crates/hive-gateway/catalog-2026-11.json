@@ -803,7 +803,7 @@
       "id": "nvidia",
       "source_url": "https://docs.api.nvidia.com/nim/reference/llm-apis",
       "reviewed_at": "2026-11-13",
-      "note": "",
+      "note": "Revisado con llamadas reales el 2026-11-16 (clave de la cuenta, nivel gratuito): solo se declaran capacidades comprobadas ese día; function_calling y streaming sin verificar donde no se indica. El audio por /v1/chat/completions no quedó verificado en ningún modelo (Riva usa gRPC). /v1/models lista modelos que no se pueden invocar (404) y no dice cuáles son gratis.",
       "models": [
         {
           "wire_id": "moonshotai/kimi-k3.1-pro",
@@ -816,7 +816,8 @@
             "streaming"
           ],
           "source_url": "https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k3_1-pro",
-          "context_window": 1048576
+          "context_window": 1048576,
+          "availability_note": "No figuraba en /v1/models el 2026-11-16; sin probar."
         },
         {
           "wire_id": "z-ai/glm-5.3-flash",
@@ -827,7 +828,10 @@
             "function_calling",
             "json_mode",
             "streaming"
-          ]
+          ],
+          "availability_note": "Verificado el 2026-11-16 en una 2.ª prueba: texto y herramientas en ~2 s. La primera sonda (45 s) agotó el tiempo, probablemente congestión del nivel gratuito. La visión que declara la documentación no se probó.",
+          "catalog_listed_at": "2026-11-16",
+          "context_window": 1000000
         },
         {
           "wire_id": "z-ai/glm-5.3",
@@ -837,7 +841,145 @@
             "function_calling",
             "json_mode",
             "streaming"
-          ]
+          ],
+          "availability_note": "Retirado por NVIDIA el 2026-10-28 (HTTP 410)."
+        },
+        {
+          "wire_id": "nvidia/nemotron-3.5-bolt-e4b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "function_calling"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto (0,2 s) y visión (0,5 s). Audio no procesado. Llamada a herramientas y aprobación verificadas de punta a punta (2.ª prueba, ~2 s). Ventana de 64K tomada del valor más bajo entre fuentes que discrepan (64K y 130K); sin confirmar con NVIDIA.",
+          "catalog_listed_at": "2026-11-16",
+          "refresh_capabilities": true,
+          "context_window": 65536
+        },
+        {
+          "wire_id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "reasoning",
+            "function_calling"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto (0,9 s) y visión (1,6 s). Audio no procesado. Llamada a herramientas y aprobación verificadas de punta a punta (2.ª prueba, ~2 s).",
+          "catalog_listed_at": "2026-11-16",
+          "refresh_capabilities": true,
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "reasoning",
+            "function_calling"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto y visión. Acepta audio (HTTP 200) pero con 300 tokens solo razonó, sin texto final: audio sin verificar. Llamada a herramientas y aprobación verificadas de punta a punta (2.ª prueba, ~2 s).",
+          "catalog_listed_at": "2026-11-16",
+          "refresh_capabilities": true,
+          "context_window": 262144
+        },
+        {
+          "wire_id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "reasoning"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto (1 s). La visión no está habilitada.",
+          "catalog_listed_at": "2026-11-16"
+        },
+        {
+          "wire_id": "nvidia/ising-calibration-1.5-31b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto y visión. Es un ajuste fino especializado (calibración), no un asistente general.",
+          "catalog_listed_at": "2026-11-16"
+        },
+        {
+          "wire_id": "poolside/laguna-xs-2.1",
+          "model_type": "llm",
+          "capabilities": [
+            "chat"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto (0,3 s). La visión no está habilitada.",
+          "catalog_listed_at": "2026-11-16"
+        },
+        {
+          "wire_id": "minimaxai/minimax-m3.1-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "vision",
+            "reasoning",
+            "function_calling"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto (1,6 s) y visión (2,8 s). Llamada a herramientas y aprobación verificadas de punta a punta (2.ª prueba, ~2 s).",
+          "catalog_listed_at": "2026-11-16",
+          "refresh_capabilities": true,
+          "context_window": 1000000
+        },
+        {
+          "wire_id": "deepseek-ai/deepseek-v4.1-flash",
+          "model_type": "llm",
+          "capabilities": [
+            "chat",
+            "function_calling"
+          ],
+          "availability_note": "Verificado el 2026-11-16 en una 2.ª prueba: texto y herramientas en ~2 s. La primera sonda (150 s) agotó el tiempo, probablemente congestión del nivel gratuito. Visión sin probar.",
+          "catalog_listed_at": "2026-11-16",
+          "refresh_capabilities": true
+        },
+        {
+          "wire_id": "mistralai/mistral-large-4-1t-a52b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto (9 s). La prueba de visión agotó el tiempo.",
+          "catalog_listed_at": "2026-11-16"
+        },
+        {
+          "wire_id": "google/gemma-4-31b-it",
+          "model_type": "llm",
+          "capabilities": [
+            "chat"
+          ],
+          "availability_note": "Verificado el 2026-11-16: texto, pero tardó 130 s (arranque en frío del nivel gratuito).",
+          "catalog_listed_at": "2026-11-16"
+        },
+        {
+          "wire_id": "moonshotai/kimi-k3",
+          "model_type": "llm",
+          "capabilities": [
+            "chat"
+          ],
+          "availability_note": "Retirado por NVIDIA el 2026-10-15 (HTTP 410): no usar."
+        },
+        {
+          "wire_id": "deepseek-ai/deepseek-v4-flash-0731",
+          "model_type": "llm",
+          "capabilities": [
+            "chat"
+          ],
+          "availability_note": "Retirado por NVIDIA el 2026-09-21 (HTTP 410): no usar."
+        },
+        {
+          "wire_id": "nvidia/nemotron-3-super-120b-a12b",
+          "model_type": "llm",
+          "capabilities": [
+            "chat"
+          ],
+          "availability_note": "Retirado por NVIDIA el 2026-10-03 (HTTP 410): no usar."
         }
       ]
     },

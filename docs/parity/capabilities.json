@@ -124,7 +124,7 @@
       "id": "providers",
       "capability": "All configured TS LLM providers and capability mappings",
       "status": "partial",
-      "notes": "Preset catalog for the 16 reference providers with wire profiles: tool-name normalization with reverse map, schema adjustments, tool_choice/parallelism, no-tool model rejection, session header (docs/providers.md). Verified against local servers only; pending: reasoning_content round-trip, NVIDIA thinking kwargs, text tool calls, orphan tool_call sanitizing, derived max output, native Ollama protocol; retry-without-tools intentionally not implemented",
+      "notes": "Preset catalog for the 16 reference providers with wire profiles: tool-name normalization with reverse map, schema adjustments, tool_choice/parallelism, no-tool model rejection, session header (docs/providers.md). Verified against local servers only; reasoning_content round-trip (deepseek/kimi), NVIDIA thinking kwargs by model family, opt-in text tool calls (ollama), orphan tool_call sanitizing and profile merging are covered (docs/providers.md); native Ollama protocol (kind ollama: num_ctx, keep_alive, think, NDJSON streaming, tool calls and images; fake server, gateway, and a real local Ollama 0.40 model, docs/providers.md); output limit derived from context_window (15%, all four protocols); retry-without-tools intentionally not implemented",
       "rust_evidence": "crates/hive-core/src/provider/profile.rs",
       "ts_differential_test": null,
       "ts_sources": [
@@ -147,7 +147,7 @@
       "id": "oracle",
       "capability": "Opt-in Jev/Kev decisions and review",
       "status": "partial",
-      "notes": "Opt-in decision client (choice/noul, both answer spellings, strict validation, fail-open fallback, cooldown, distrust strikes) charged as auxiliary calls to the root Objective (docs/oracle.md); local-server evidence only. Pending: jev-planner loop integration (finish/parallelism/pruning/verification), automatic provider/key resolution, share flags, canvas events, persisted counters",
+      "notes": "Opt-in decision client (choice/noul, both answer spellings, strict validation, fail-open fallback, cooldown, distrust strikes) charged as auxiliary calls to the root Objective (docs/oracle.md); local-server evidence only. Final-answer review (oracle::review: finish/continue and support questions, judge, correction prompt) wired into the gateway coordinator, off by default, charged to the turn Objective, fail-open, with admin settings and a secret key (docs/oracle.md); fake-oracle evidence only. Tool parallelism, oracle-driven pruning and per-result verification are deliberately not implemented (docs/oracle.md). Pending: automatic provider/key resolution, share flags, canvas events, persisted counters",
       "rust_evidence": "crates/hive-core/src/oracle.rs",
       "ts_differential_test": null,
       "ts_sources": [
@@ -157,10 +157,10 @@
     },
     {
       "id": "mcp_tools",
-      "capability": "MCP stdio and Streamable HTTP tools",
+      "capability": "MCP stdio, Streamable HTTP and classic SSE tools",
       "status": "partial",
-      "notes": "Native clients implemented; manager and remaining transports pending",
-      "rust_evidence": "crates/hive-core/src/mcp.rs",
+      "notes": "Native stdio and Streamable HTTP clients plus McpManager (Rust/npm/Python): named server set reconciled by apply (unchanged kept, new/changed connected in parallel, removed closed, atomic publish), per-server failures, disabled servers, drainMs, qualified tool names, explicit reconnect, nothing reconnected or replayed on its own (docs/mcp.md). Tested with the stdio fixture server only; tools/list_changed is detected (stdio and HTTP, seen with the next exchange) and refreshTools/refresh_tools re-list and adopt the new catalog (an Agent already created keeps its tools by design; docs/mcp.md). Classic HTTP+SSE transport (n8n-style) tested with fake servers in Rust/npm/Python and read-only against two real n8n servers; the gateway connects HiveDB mcpServers rows, reports real status/tools and offers their tools to the coordinator through the tool policy, calls never replayed (docs/mcp.md). Pending: other TS transports.",
+      "rust_evidence": "crates/hive-core/src/mcp/manager.rs, crates/hive-core/src/mcp/sse.rs, crates/hive-gateway/src/mcp_servers.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/mcp/MCPClient.ts"
@@ -170,7 +170,7 @@
       "id": "mcp_resources_prompts",
       "capability": "MCP resources, prompts and catalog reload",
       "status": "partial",
-      "notes": "Resource and prompt operations implemented in Rust/npm/Python, including servers without tools. Manager, hot reload and other TS transports remain pending.",
+      "notes": "Resource and prompt operations implemented in Rust/npm/Python, including servers without tools. Manager and hot reload exist for tools (McpManager); resources/prompts are still per-client. Other TS transports remain pending.",
       "rust_evidence": "crates/hive-core/tests/mcp.rs",
       "ts_differential_test": null,
       "ts_sources": [
@@ -205,7 +205,7 @@
       "id": "scheduler",
       "capability": "Cron, timezone, manual execution and history",
       "status": "partial",
-      "notes": "Shared native five/six-field cron calendar, IANA zones, at/interval schedules, paused registration, atomic queue publication, explicit misfire policies, nonoverlap, limits, pagination and opt-in producer loops implemented in Rust/Node/Python. The gateway cron now runs on this kernel (cronJobs as definition, immutable fingerprinted schedules, WorkerPool jobs, taskRuns projected from the queue event log, uncertain runs never replayed, finished-job purge); see docs/native-scheduler.md. Nine TS calendar matches plus documented wildcard-day-step correction; cron triggers in the Objective API and TS scheduler API parity pending.",
+      "notes": "Shared native five/six-field cron calendar, IANA zones, at/interval schedules, paused registration, atomic queue publication, explicit misfire policies, nonoverlap, limits, pagination and opt-in producer loops implemented in Rust/Node/Python. The gateway cron now runs on this kernel (cronJobs as definition, immutable fingerprinted schedules, WorkerPool jobs, taskRuns projected from the queue event log, uncertain runs never replayed, finished-job purge); see docs/native-scheduler.md. A task's `channel` (all/telegram/discord/slack/whatsapp) also delivers its result, or a failure notice, to the owner's active channels so an unattended run is not lost (tested against fake channel servers; docs/channels.md). Nine TS calendar matches plus documented wildcard-day-step correction; Objective cron triggers (same shared calendar, single latest-due claim with a bounded missed-count, idempotent and durable like the other triggers; docs/triggers.md). TS scheduler API parity pending.",
       "rust_evidence": "crates/hive-core/src/harness/schedules.rs",
       "ts_differential_test": "scripts/compare-ts-parity.py --scenario scheduler",
       "ts_sources": [
@@ -284,9 +284,9 @@
     {
       "id": "computer_use",
       "capability": "Native desktop input and screenshots",
-      "status": "pending",
-      "notes": "No OS input/screenshot backend. Deferred out of phase 1: needs a platform backend per OS (X11/Wayland, Quartz, Win32) and an explicit authorization model; the browser tools cover web UIs",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "computer_* tools (screenshot, move, click, drag, scroll, type, key, wait) behind the computer-use feature, Linux only: X11 backend (x11rb, XTEST) verified against a real X server, and Wayland portal backend (RemoteDesktop/ScreenCast/Screenshot over D-Bus) verified against a fake portal on a private bus; common logic unit-tested. Authorization model: off by default, screenshot and input are separate grants, action budget, host stop that interrupts and releases held input, interrupted actions reported uncertain and never replayed (docs/computer-use.md). Engine shows tool pictures to the model as images (policy image_tools, newest N kept; tested against the three provider adapters) and the gateway offers the tools to the coordinator only, off by default, needing a vision model, with one approval per conversation, an admin stop switch and audit (tested with a scripted desktop). Windows (SendInput/GDI) and macOS (Quartz) backends are THEORETICAL: type-checked and clippy-clean for their targets, never run (docs/computer-use.md, docs/external-testing.md; computer_demo example). Pending: the real GNOME/KDE portal with a person accepting the dialog, a full loop with a real vision model, running the Windows and macOS backends.",
+      "rust_evidence": "crates/hive-core/src/tools/computer.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/tools/web/computer-use.ts"
@@ -296,7 +296,7 @@
       "id": "office",
       "capability": "Native PDF/DOCX/XLSX parsing and generation",
       "status": "partial",
-      "notes": "Native DOCX/XLSX/PPTX read+write and PDF text read plus styled PDF write (blocks, themes, tables, links, header/footer page numbers, real AFM metrics; poppler-verified) inside the filesystem sandbox (own bounded ZIP, strict XML, PDF scanner/extractor, miniz_oxide); styled PPTX decks (theme/master/layouts); checked against python-docx/openpyxl/python-pptx fixtures, hostile archives, LibreOffice, and poppler on PDFs from ReportLab/Chrome/LibreOffice/Ghostscript (docs/office.md); pending: OCR and encrypted PDFs, PDF layout/columns, speaker notes/images/charts, Excel dates/styles, Word headers/footnotes/comments, differential tests vs mammoth/SheetJS/pptxgenjs/pdfjs, Microsoft Office check",
+      "notes": "Native DOCX/XLSX/PPTX read+write and PDF text read (encrypted PDFs: RC4-40/128, AES-128, AES-256 with the empty or user password; poppler-verified fixtures) plus styled PDF write (blocks, themes, tables, links, header/footer page numbers, real AFM metrics; poppler-verified) inside the filesystem sandbox (own bounded ZIP, strict XML, PDF scanner/extractor, miniz_oxide); styled PPTX decks (theme/master/layouts); checked against python-docx/openpyxl/python-pptx fixtures, hostile archives, LibreOffice, and poppler on PDFs from ReportLab/Chrome/LibreOffice/Ghostscript (docs/office.md); Word headers/footers with live page fields and PPTX speaker notes (verified in LibreOffice); pending: OCR, PDF layout/columns, PPTX images/charts, Word footnotes/comments, differential tests vs mammoth/SheetJS/pptxgenjs/pdfjs, Microsoft Office check OCR of scanned PDFs and pictures is a gateway tool (ocr_read, coordinator only, off by default, folder-sandboxed, configured from the desktop OCR tab; docs/ocr.md): text layer in place, else a dedicated OCR endpoint (Mistral) or a vision model. Tested against fake servers only; never run against a real OCR provider.",
       "rust_evidence": "crates/hive-core/src/tools/office.rs",
       "ts_differential_test": null,
       "ts_sources": [
@@ -307,7 +307,7 @@
       "id": "images_artifacts",
       "capability": "Image transforms, artifact storage and retention",
       "status": "partial",
-      "notes": "Tenant-scoped artifact store (bytes on disk, SHA-256 verified on read, explicit 7-day retention, expiry sweep) with artifact_* tools and header-only image info for PNG/JPEG/GIF/WebP (docs/artifacts.md); pending: image transforms (needs a codec), HTTP/gateway/channel delivery, per-user ownership within a tenant, MCP artifact_ref wiring",
+      "notes": "Tenant-scoped artifact store (bytes on disk, SHA-256 verified on read, explicit 7-day retention, expiry sweep) with artifact_* tools and header-only image info for PNG/JPEG/GIF/WebP (docs/artifacts.md); image transforms (crop/rotate/flip/fit/grayscale; PNG/JPEG/WebP out, GIF first frame, EXIF orientation, 50 MP input cap; lossless WebP only, no AVIF/HEIC; artifact_transform_image); pending: HTTP/gateway/channel delivery, per-user ownership within a tenant, MCP artifact_ref wiring",
       "rust_evidence": "crates/hive-core/src/artifacts.rs",
       "ts_differential_test": null,
       "ts_sources": [
@@ -352,9 +352,9 @@
     {
       "id": "telegram",
       "capability": "Native Telegram channel",
-      "status": "pending",
-      "notes": "Configurable in desktop, no running native adapter",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native long-polling adapter in the gateway (docs/channels.md): mandatory allowed_chat_ids (a channel without one never starts), at-most-once via the offset saved before handling, token never in status/errors, generic error text to the chat, turns through the durable driver (budget, user isolation, tool policy), live status, supervisor that starts/restarts/stops pollers with the channel row/secret. Tested only against a fake Telegram API server and the fake model provider; never against real Telegram. Inbound photos and image documents (largest size that fits, byte-checked, vision models only; docs/channels.md). Pending: webhook mode, groups/mentions/commands, outbound media, rate limits, real-account validation.",
+      "rust_evidence": "crates/hive-gateway/src/telegram.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/channels/telegram.ts"
@@ -363,9 +363,9 @@
     {
       "id": "discord",
       "capability": "Native Discord channel",
-      "status": "pending",
-      "notes": "Configurable in desktop, no running native adapter",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native Gateway WebSocket adapter (docs/channels.md): mandatory allowed_channel_ids, Identify with the Message Content intent, heartbeats with zombie-connection replacement, reconnect, fatal close codes 4004/4013/4014 never retried, replies with allowed_mentions parse=[], at-most-once (no session resume), shared channel rules. Tested only against a fake Discord gateway/REST; never against real Discord. Inbound image attachments (Discord hosts only, no credential sent, byte-checked, vision models only; docs/channels.md). Pending: session resume, typing indicator, outbound media, slash commands, threads, real-account validation.",
+      "rust_evidence": "crates/hive-gateway/src/discord.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/channels/discord.ts"
@@ -374,9 +374,9 @@
     {
       "id": "slack",
       "capability": "Native Slack channel",
-      "status": "pending",
-      "notes": "Configurable in desktop, no running native adapter",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native Socket Mode adapter (docs/channels.md): mandatory allowed_channel_ids, every envelope acknowledged before handling and event ids deduplicated, only human messages answered, notification markers defused, reconnect on disconnect, auth errors fatal and never retried, shared channel rules. Tested only against a fake Slack Web API/Socket Mode; never against real Slack. Threads, slash commands (via response_url) and Aprobar/Denegar approval buttons are covered (docs/channels.md). Inbound images (type, size, host and magic-byte checks; only to vision models) and the Events API webhook mode (signed requests with a 5-minute window, persisted event ids, events, slash commands, 404 for misconfigured channels) are covered against fake servers (docs/channels.md). Approval buttons also work through the signed webhook. Pending: real-account validation, sending files.",
+      "rust_evidence": "crates/hive-gateway/src/slack.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/channels/slack.ts"
@@ -396,9 +396,9 @@
     {
       "id": "whatsapp_cloud",
       "capability": "Native WhatsApp Cloud channel",
-      "status": "pending",
-      "notes": "Webhook validation, normalization and sending pending",
-      "rust_evidence": null,
+      "status": "partial",
+      "notes": "Native webhook adapter (docs/channels.md): public route served before the bearer token with its own protection — mandatory HMAC-SHA256 signature check in constant time (unsigned/mis-signed bodies are 401 and never parsed), constant-time verify_token handshake echoing hub.challenge as plain text, 404 for unknown/disabled/misconfigured channels, mandatory allowed_numbers, persisted message-id dedupe (at most once), generic error to the chat, no secrets in status. Tested over real HTTP against a fake Graph API only; never against Meta. Inbound images through the media id (Meta hosts only, token on both calls, byte-checked, vision models only; docs/channels.md). Pending: outbound media, templates, 24h window, rate limits, groups, real-account validation.",
+      "rust_evidence": "crates/hive-gateway/src/whatsapp.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/channels/whatsapp-cloud/index.ts"
@@ -407,8 +407,8 @@
     {
       "id": "whatsapp_qr",
       "capability": "Native WhatsApp QR pairing and persistent sessions",
-      "status": "pending",
-      "notes": "Native Rust candidates found; dependency integration, pairing and live validation still pending",
+      "status": "partial",
+      "notes": "Opt-in `whatsapp_qr` channel behind the gateway feature `whatsapp-qr` (unofficial `whatsapp-rust` client; docs/whatsapp-qr.md): mandatory allowlist of phone numbers, no groups/own/stale/duplicate messages, QR in the channel status, keys in a 0700 directory, relink on unlink, delivery of scheduled tasks. The filter and configuration are tested without network; the real protocol (pairing, reconnect, LID senders) has NEVER been run with a phone, and `wacore-libsignal` needs a licence review before any binary with the feature is distributed",
       "rust_evidence": null,
       "ts_differential_test": null,
       "ts_sources": [
@@ -430,8 +430,8 @@
       "id": "security_hooks",
       "capability": "Authentication, rate limits, hooks and ethics",
       "status": "partial",
-      "notes": "Desktop authentication exists; shared policy services and hooks pending",
-      "rust_evidence": "crates/hive-gateway/src/config.rs",
+      "notes": "Declarative tool policy evaluated natively (allow/deny/ask, first-match rules, JSON-pointer conditions, missing argument never matches) plus beforeTool/approve/afterTool hooks in the Node and Python Agent (strictest wins, hook failures deny, afterTool failure withholds output, approval waits before the durable claim so nothing is left claimed), and a gateway-wide policy in HiveDB with human approval over WebSocket/REST that fails closed (docs/policy.md). Multi-user gateway: per-user tokens (SHA-256 only stored), administrator vs user principal, restricted per-user surface, per-user stores/queues/schedulers, tenant isolation tests incl. WebSocket (docs/gateway-multiuser.md). Tested with scripted providers/approvers and seeded users; Per-user policies (admin-set, replacing the global one for that user) and a bounded audit log of every decision (arguments only as a SHA-256, newest-first paginated API, users see only their own). Opt-in rate limits (docs/rate-limits.md): per-user REST and web-chat limits, per-chat channel limits that stop a refused message before any model call, per-channel webhook limit counted before reading, and a bucket for authentication failures that never affects valid tokens (in-memory, per process). Approval UI in the Rune desktop (card on any screen + A2UI surface in the chat), approval by plain text in Telegram/Discord/Slack/WhatsApp chats, password login that issues per-user session tokens (owner keeps the shared token), per-account failed-login limits. Per-IP limits do not apply (the gateway listens on loopback only). Approvals were tested against fake servers, not a real gateway and desktop together.",
+      "rust_evidence": "crates/hive-core/src/policy.rs",
       "ts_differential_test": null,
       "ts_sources": [
         "packages/core/src/security/index.ts",

@@ -89,5 +89,24 @@ class NativeToolsTests(unittest.IsolatedAsyncioTestCase):
             server.server_close()
 
 
+class ComputerToolsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_computer_tools_are_off_unless_configured_and_the_host_controls_reach_the_engine(self):
+        with tempfile.TemporaryDirectory() as root:
+            def names(definitions): return [d['name'] for d in definitions if d['name'].startswith('computer_')]
+            async with NativeTools({'root': root}) as none:
+                self.assertEqual(names(await none.definitions()), [])
+            async with NativeTools({'root': root, 'computer': {'backend': 'x11', 'display': ':99'}}) as screenshots:
+                self.assertEqual(names(await screenshots.definitions()), ['computer_screenshot', 'computer_wait'])
+            async with NativeTools({'root': root, 'computer': {'backend': 'x11', 'display': ':99', 'allow_input': True}}) as full:
+                self.assertEqual(len(names(await full.definitions())), 8)
+                self.assertEqual(await full.computer_status(), {'stopped': False, 'actions': 0})
+                self.assertEqual((await full.computer_stop())['stopped'], True)
+                with self.assertRaises(Exception): await full.execute('computer_screenshot', {})
+                self.assertEqual((await full.computer_resume())['stopped'], False)
+                self.assertEqual(await full.computer_reset(), {'stopped': False, 'actions': 0})
+            with self.assertRaisesRegex(Exception, 'allow_screenshot or allow_input'):
+                NativeTools({'root': root, 'computer': {'allow_screenshot': False}})
+
+
 if __name__ == '__main__':
     unittest.main()

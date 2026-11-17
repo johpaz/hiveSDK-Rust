@@ -480,3 +480,174 @@ fn validate(
     }
     Ok(answers)
 }
+
+/// A reviewer for a finished answer: the "finish or continue" and "is it supported" questions of
+/// the decision loop, and what to do with the oracle's answers.
+///
+/// The host decides when to ask (typically when the model is about to give its final answer) and
+/// what to do with a [`Verdict::Revise`] (ask the model again with the reason, at most
+/// `max_corrections` times). An oracle that is unreachable, cooling down or answers badly never
+/// blocks anything: the verdict is [`Verdict::Accept`]. See [`Oracle::ask`] for the transport.
+pub mod review {
+    use super::{Answer, OracleReply, Question};
+    use serde::Deserialize;
+    use serde_json::{Value, json};
+    use std::collections::BTreeMap;
+
+    const FINISH: &str = "finish";
+    const CONTINUE: &str = "continue";
+    const MAX_REQUEST_CHARS: usize = 2_000;
+    const MAX_ANSWER_CHARS: usize = 4_000;
+    const MAX_EVIDENCE: usize = 12;
+    const MAX_EXCERPT_CHARS: usize = 300;
+
+    fn default_corrections() -> u32 {
+        1
+    }
+    fn default_confidence() -> f64 {
+        0.7
+    }
+    fn default_support() -> f64 {
+        0.5
+    }
+
+    #[derive(Debug, Clone, Deserialize, PartialEq)]
+    #[serde(default, deny_unknown_fields)]
+    pub struct ReviewConfig {
+        /// How many times the host may ask the model to correct one answer.
+        pub max_corrections: u32,
+        /// How sure the oracle must be that the answer should not stop here for that to count.
+        pub min_confidence: f64,
+        /// An answer judged less likely than this to be backed by the evidence is revised.
+        pub support_threshold: f64,
+    }
+    impl Default for ReviewConfig {
+        fn default() -> Self {
+            Self {
+                max_corrections: default_corrections(),
+                min_confidence: default_confidence(),
+                support_threshold: default_support(),
+            }
+        }
+    }
+    impl ReviewConfig {
+        pub fn validate(&self) -> crate::Result<()> {
+            if !(1..=3).contains(&self.max_corrections)
+                || !(0.5..=1.0).contains(&self.min_confidence)
+                || !(0.0..=1.0).contains(&self.support_threshold)
+            {
+                return Err(crate::Error::Input(
+                    "review: max_corrections is 1..=3, min_confidence 0.5..=1 and support_threshold 0..=1".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    /// What the oracle is told about a finished answer.
+    #[derive(Debug, Clone, Default)]
+    pub struct ReviewInput {
+        /// What the person asked.
+        pub request: String,
+        /// The answer the model is about to give.
+        pub answer: String,
+        /// What tools returned during the turn: `{tool, ok, excerpt}`, oldest first.
+        pub evidence: Vec<Value>,
+    }
+
+    fn clip(text: &str, max: usize) -> String {
+        match text.char_indices().nth(max) {
+            Some((at, _)) => format!("{}…", &text[..at]),
+            None => text.to_owned(),
+        }
+    }
+
+    /// The state and the questions to send to [`Oracle::ask`](super::Oracle::ask). Everything is
+    /// clipped: the oracle sees a summary, never an unbounded transcript.
+    pub fn questions(input: &ReviewInput) -> (Value, BTreeMap<String, Question>) {
+        let evidence: Vec<Value> = input
+            .evidence
+            .iter()
+            .rev()
+            .take(MAX_EVIDENCE)
+            .rev()
+            .map(|entry| {
+                json!({"tool":entry["tool"],"ok":entry["ok"],
+                    "excerpt":clip(entry["excerpt"].as_str().unwrap_or_default(), MAX_EXCERPT_CHARS)})
+            })
+            .collect();
+        let state = json!({
+            "request": clip(&input.request, MAX_REQUEST_CHARS),
+            "answer": clip(&input.answer, MAX_ANSWER_CHARS),
+            "tool_results": evidence,
+        });
+        let mut questions = BTreeMap::new();
+        questions.insert(
+            "next".to_owned(),
+            Question::Choice {
+                instructions: "The assistant is about to give `answer` to `request`. Should it stop here?".into(),
+                criteria: BTreeMap::from([
+                    (FINISH.to_owned(), "The answer resolves what was asked and nothing important is missing.".to_owned()),
+                    (CONTINUE.to_owned(), "The answer is incomplete, skips part of the request, or claims to have done something the tool results do not show.".to_owned()),
+                ]),
+            },
+        );
+        questions.insert(
+            "supported".to_owned(),
+            Question::Noul {
+                instructions: "Every concrete claim in `answer` about actions taken or data found is backed by `tool_results` (general knowledge is fine; invented results are not).".into(),
+                criteria: None,
+            },
+        );
+        (state, questions)
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum Verdict {
+        /// Give the answer as it is.
+        Accept,
+        /// Ask the model to correct it; `reason` is for it (and the logs).
+        Revise { reason: String },
+    }
+
+    /// What to do with the oracle's reply. Anything but a clear decision accepts.
+    pub fn judge(reply: &OracleReply, config: &ReviewConfig) -> Verdict {
+        let OracleReply::Decision(decision) = reply else {
+            return Verdict::Accept;
+        };
+        let mut reasons = vec![];
+        if let Some(Answer::Choice {
+            choice, confidence, ..
+        }) = decision.answers.get("next")
+            && choice == CONTINUE
+            && *confidence >= config.min_confidence
+        {
+            reasons.push(format!(
+                "the answer looks incomplete (confidence {:.0}%)",
+                confidence * 100.0
+            ));
+        }
+        if let Some(Answer::Noul { noul }) = decision.answers.get("supported")
+            && *noul < config.support_threshold
+        {
+            reasons.push(format!(
+                "some claims may not be backed by the tool results (support {:.0}%)",
+                noul * 100.0
+            ));
+        }
+        if reasons.is_empty() {
+            Verdict::Accept
+        } else {
+            Verdict::Revise {
+                reason: reasons.join("; "),
+            }
+        }
+    }
+
+    /// The message that asks the model to correct itself.
+    pub fn correction_prompt(reason: &str) -> String {
+        format!(
+            "Automatic review: {reason}. Re-read the request, use the tools if something is missing, and give the corrected answer. If the answer was right, repeat it and say what supports it. Do not mention this review unless it changes the answer."
+        )
+    }
+}

@@ -1,7 +1,8 @@
 name: Release
 
 # Publica @johpaz/hive-sdk-rust (npm) y johpaz-hive-sdk-rust (PyPI) a partir de
-# los artefactos que native.yml construyó y probó en las seis plataformas.
+# los artefactos que native.yml construyó y probó en las seis plataformas, y adjunta al release de GitHub los
+# binarios del gateway (gateway.yml: cinco plataformas, sin npm ni Python) con su SHA256SUMS.
 # Nunca compila nada propio: si un binario no pasó la matriz, no se publica.
 #
 # Disparo normal:  git tag -a v0.1.0 -m "release v0.1.0" && git push origin v0.1.0
@@ -76,6 +77,13 @@ jobs:
     needs: gate
     uses: ./.github/workflows/native.yml
 
+  gateway:
+    name: Binarios del gateway
+    needs: gate
+    uses: ./.github/workflows/gateway.yml
+    with:
+      public: ${{ github.event_name == 'push' }}
+
   publish-npm:
     name: Publicar npm
     needs: build
@@ -136,7 +144,7 @@ jobs:
 
   github-release:
     name: Release en GitHub
-    needs: [publish-npm, publish-pypi]
+    needs: [publish-npm, publish-pypi, gateway]
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     permissions:
@@ -147,10 +155,21 @@ jobs:
           pattern: native-*
           path: artifacts
           merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: gateway-*
+          path: artifacts/gateway
+          merge-multiple: true
+      - name: Sumas de verificación del gateway
+        run: |
+          cd artifacts/gateway
+          cat *.sha256 > SHA256SUMS
+          ls -l
       - name: Crear release con los artefactos
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag \
-            artifacts/npm/*.tgz artifacts/wheels/*.whl
+            artifacts/npm/*.tgz artifacts/wheels/*.whl \
+            artifacts/gateway/*.tar.gz artifacts/gateway/*.zip artifacts/gateway/SHA256SUMS

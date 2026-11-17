@@ -971,7 +971,7 @@ async fn office_tools_exist_only_when_configured_and_validate_arguments() {
         ("office_write_pptx", json!({"path":"a.pptx","slides":[]})),
         (
             "office_write_pptx",
-            json!({"path":"a.pptx","slides":[{"notes":"n"}]}),
+            json!({"path":"a.pptx","slides":[{"bogus":"n"}]}),
         ),
         ("office_read_pptx", json!({"path":"a.pptx","only_slide":0})),
         (
@@ -1280,5 +1280,367 @@ print('ok')
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+async fn excel_dates_are_read_as_iso_by_their_number_format_and_as_serials_on_request() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), "dates-1900.xlsx");
+    fixture(dir.path(), "dates-1904.xlsx");
+    let tools = tools(dir.path(), json!({}));
+    let rows = |read: Value| -> Vec<(String, Value)> {
+        read["data"]["Fechas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["Etiqueta"].as_str().unwrap().to_owned(),
+                    r["Valor"].clone(),
+                )
+            })
+            .collect()
+    };
+    let iso = rows(
+        call(
+            &tools,
+            "office_read_xlsx",
+            json!({"path":"dates-1900.xlsx"}),
+        )
+        .await
+        .unwrap(),
+    );
+    let got = |label: &str| iso.iter().find(|(l, _)| l == label).unwrap().1.clone();
+    assert_eq!(got("builtin 14"), "2025-03-01");
+    assert_eq!(got("builtin 22 con hora"), "2025-03-01T14:30:00");
+    assert_eq!(got("personalizado dd/mm/yyyy"), "2025-03-01");
+    assert_eq!(got("hora builtin 21"), "12:00:00");
+    assert_eq!(
+        got("transcurrido [h]:mm:ss"),
+        "36:00:00",
+        "elapsed hours do not wrap at 24"
+    );
+    assert_eq!(
+        got("1900-02-29 inexistente"),
+        "1900-02-29",
+        "Excel's invented day is shown as Excel shows it"
+    );
+    assert_eq!(got("primer día"), "1900-03-01");
+    assert_eq!(got("serie 1"), "1900-01-01");
+    assert_eq!(got("mmm-yy"), "2025-03-01");
+    assert_eq!(
+        got("celda ISO t=d"),
+        "2025-03-01T00:00:00",
+        "a typed date cell is kept as the text it is"
+    );
+    assert_eq!(got("mm:ss builtin 20"), "06:00:00");
+    // Not dates: a percentage, General, quoted text that happens to contain date letters, a colored
+    // conditional format, and a serial beyond Excel's last date.
+    assert_eq!(got("porcentaje"), 0.25);
+    assert_eq!(got("general"), 45717);
+    assert_eq!(got("texto entre comillas"), 5);
+    assert_eq!(got("color y condición"), -2.5);
+    assert_eq!(got("fuera de rango"), 3_000_000);
+    // `dates: serial` keeps Excel's numbers, exactly as stored.
+    let serial = rows(
+        call(
+            &tools,
+            "office_read_xlsx",
+            json!({"path":"dates-1900.xlsx","dates":"serial"}),
+        )
+        .await
+        .unwrap(),
+    );
+    let kept = |label: &str| serial.iter().find(|(l, _)| l == label).unwrap().1.clone();
+    assert_eq!(
+        (
+            kept("builtin 14"),
+            kept("hora builtin 21"),
+            kept("1900-02-29 inexistente")
+        ),
+        (json!(45717), json!(0.5), json!(60))
+    );
+    assert_eq!(kept("celda ISO t=d"), "2025-03-01T00:00:00");
+    // The 1904 date system (old Mac workbooks) counts from another day.
+    let old = rows(
+        call(
+            &tools,
+            "office_read_xlsx",
+            json!({"path":"dates-1904.xlsx"}),
+        )
+        .await
+        .unwrap(),
+    );
+    assert_eq!(old[0].1, "2024-03-02");
+    assert_eq!(old[1].1, "18:00:00");
+    assert!(
+        call(
+            &tools,
+            "office_read_xlsx",
+            json!({"path":"dates-1900.xlsx","dates":"unix"})
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn excel_columns_with_formats_round_trip_and_a_real_spreadsheet_shows_them_formatted() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    call(&tools, "office_write_xlsx", json!({"path":"ventas.xlsx","sheets":[{"name":"Ventas","headers":["fecha","monto","tasa","hora"],
+        "data":[{"fecha":"2025-03-01","monto":1234.5,"tasa":0.25,"hora":"14:30"},{"fecha":"2025-12-31","monto":99,"tasa":0.075,"hora":"09:05:30"}],
+        "columns":[{"column":"fecha","format":"date","width":14},{"column":"monto","format":"currency","bold":true},{"column":"tasa","format":"percent"},{"column":"hora","format":"time"}],
+        "header_style":{"bold":true,"fill":"#DDEEFF"},"freeze_header":true,"autofilter":true}]})).await.unwrap();
+    let back = call(&tools, "office_read_xlsx", json!({"path":"ventas.xlsx"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        back["data"]["Ventas"],
+        json!([
+        {"fecha":"2025-03-01","monto":1234.5,"tasa":0.25,"hora":"14:30:00"},
+        {"fecha":"2025-12-31","monto":99,"tasa":0.075,"hora":"09:05:30"}])
+    );
+    // A bad date is refused before anything is written.
+    let error = call(&tools, "office_write_xlsx", json!({"path":"mal.xlsx","sheets":[{"name":"A","headers":["f"],"data":[{"f":"1 de marzo"}],"columns":[{"column":"f","format":"date"}]}]})).await.unwrap_err();
+    assert!(message(error).contains("ISO date"));
+    assert!(!dir.path().join("mal.xlsx").exists());
+    // LibreOffice, an independent implementation, must show the cells as formatted (opt in: HIVE_TEST_SOFFICE=soffice).
+    let Ok(soffice) = std::env::var("HIVE_TEST_SOFFICE") else {
+        eprintln!("skipped: set HIVE_TEST_SOFFICE to soffice to check the file in LibreOffice");
+        return;
+    };
+    let out = std::process::Command::new(soffice)
+        .args([
+            "--headless",
+            "--convert-to",
+            "csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,true",
+            "--outdir",
+        ])
+        .arg(dir.path().join("out"))
+        .arg(dir.path().join("ventas.xlsx"))
+        .env("HOME", dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let csv = std::fs::read_to_string(dir.path().join("out/ventas.csv")).unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(lines[0], "fecha,monto,tasa,hora", "{csv}");
+    // The separators follow the machine's locale (1,234.50 or 1.234,50); the formats do not.
+    let digits = |line: &str| -> String {
+        line.chars()
+            .filter(|c| c.is_ascii_digit() || matches!(c, '$' | '%' | '-' | ':'))
+            .collect()
+    };
+    assert_eq!(
+        digits(lines[1]),
+        digits("2025-03-01,\"$1,234.50\",25.00%,14:30:00"),
+        "{csv}"
+    );
+    assert_eq!(
+        digits(lines[2]),
+        digits("2025-12-31,$99.00,7.50%,09:05:30"),
+        "{csv}"
+    );
+    assert!(
+        lines[1].starts_with("2025-03-01,") && lines[1].ends_with(",14:30:00"),
+        "{csv}"
+    );
+    assert!(
+        lines[2].starts_with("2025-12-31,") && lines[2].ends_with(",09:05:30"),
+        "{csv}"
+    );
+}
+
+#[tokio::test]
+async fn word_headers_and_footers_repeat_with_live_page_fields_and_are_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    let long: Vec<Value> = (0..120).map(|n| json!({"text":format!("Párrafo número {n} con bastante texto para que el documento ocupe varias páginas al abrirse en un procesador.")})).collect();
+    call(&tools, "office_write_docx", json!({"path":"informe.docx","title":"Informe Q3","paragraphs":long,
+        "header":{"text":"Confidencial — {title}","align":"right"},"footer":{"text":"Página {page} de {pages}","align":"center"}})).await.unwrap();
+    let read = call(&tools, "office_read_docx", json!({"path":"informe.docx"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        read["headers"],
+        json!(["Confidencial — Informe Q3"]),
+        "{read}"
+    );
+    assert_eq!(
+        read["footers"],
+        json!(["Página {page} de {pages}"]),
+        "the page fields are read back as fields"
+    );
+    assert!(
+        !read["text"].as_str().unwrap().contains("Confidencial"),
+        "running text is not body text"
+    );
+    // No header or footer: nothing extra, as before.
+    call(
+        &tools,
+        "office_write_docx",
+        json!({"path":"plain.docx","paragraphs":[{"text":"hola"}]}),
+    )
+    .await
+    .unwrap();
+    let plain = call(&tools, "office_read_docx", json!({"path":"plain.docx"}))
+        .await
+        .unwrap();
+    assert!(plain.get("headers").is_none() && plain.get("footers").is_none());
+    // Only a footer, left-aligned, with literal text around and a field twice.
+    call(&tools, "office_write_docx", json!({"path":"pie.docx","paragraphs":[{"text":"x"}],"footer":{"text":"{page}/{pages} · {page}","align":"left"}})).await.unwrap();
+    let pie = call(&tools, "office_read_docx", json!({"path":"pie.docx"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        (pie["footers"].clone(), pie.get("headers").is_none()),
+        (json!(["{page}/{pages} · {page}"]), true)
+    );
+    for bad in [
+        json!({"text":"x","align":"justify"}),
+        json!({"text":"x".repeat(1001)}),
+    ] {
+        let error = call(
+            &tools,
+            "office_write_docx",
+            json!({"path":"mal.docx","paragraphs":[{"text":"x"}],"header":bad}),
+        )
+        .await;
+        assert!(error.is_err());
+    }
+    // LibreOffice lays the pages out: the header is on every page and the fields count them (opt in).
+    let (Ok(soffice), true) = (
+        std::env::var("HIVE_TEST_SOFFICE"),
+        std::process::Command::new("pdftotext")
+            .arg("-v")
+            .output()
+            .is_ok(),
+    ) else {
+        eprintln!(
+            "skipped: set HIVE_TEST_SOFFICE and have pdftotext to check the page layout in LibreOffice"
+        );
+        return;
+    };
+    let out = std::process::Command::new(soffice)
+        .args(["--headless", "--convert-to", "pdf", "--outdir"])
+        .arg(dir.path().join("out"))
+        .arg(dir.path().join("informe.docx"))
+        .env("HOME", dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = std::process::Command::new("pdftotext")
+        .arg("-layout")
+        .arg(dir.path().join("out/informe.pdf"))
+        .arg("-")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&text.stdout).to_string();
+    let pages = text.matches('\u{c}').count();
+    assert!(pages >= 3, "a long document is several pages: {pages}");
+    assert_eq!(
+        text.matches("Confidencial — Informe Q3").count(),
+        pages,
+        "the header is on every page"
+    );
+    for page in 1..=pages {
+        assert!(
+            text.contains(&format!("Página {page} de {pages}")),
+            "page {page} of {pages} is numbered by the live fields"
+        );
+    }
+}
+
+#[tokio::test]
+async fn powerpoint_speaker_notes_are_written_with_a_notes_master_and_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    call(&tools, "office_write_pptx", json!({"path":"deck.pptx","presentation_title":"Portada","slides":[
+        {"title":"Uno","points":["a","b"],"notes":"Saluda y presenta el tema.\nMenciona los dos puntos & el cierre <importante>."},
+        {"title":"Dos","content":"sin notas"},
+        {"title":"Tres","content":"con notas","notes":"Solo una línea."}]})).await.unwrap();
+    let read = call(&tools, "office_read_pptx", json!({"path":"deck.pptx"}))
+        .await
+        .unwrap();
+    let slides = read["slides"].as_array().unwrap();
+    assert_eq!(slides.len(), 4);
+    assert!(slides[0].get("notes").is_none(), "the cover has none");
+    assert_eq!(
+        slides[1]["notes"],
+        "Saluda y presenta el tema.\nMenciona los dos puntos & el cierre <importante>."
+    );
+    assert!(
+        slides[2].get("notes").is_none(),
+        "a slide without notes has no notes page"
+    );
+    assert_eq!(slides[3]["notes"], "Solo una línea.");
+    assert!(
+        !slides[1]["text"].as_str().unwrap().contains("Saluda"),
+        "notes are not slide text"
+    );
+    // A deck without notes is the deck it always was: no notes master.
+    call(
+        &tools,
+        "office_write_pptx",
+        json!({"path":"sin.pptx","slides":[{"title":"A","content":"b"}]}),
+    )
+    .await
+    .unwrap();
+    let plain = call(&tools, "office_read_pptx", json!({"path":"sin.pptx"}))
+        .await
+        .unwrap();
+    assert!(plain["slides"][0].get("notes").is_none());
+    assert!(
+        call(
+            &tools,
+            "office_write_pptx",
+            json!({"path":"x.pptx","slides":[{"title":"A","notes":"x".repeat(100_001)}]})
+        )
+        .await
+        .is_err()
+    );
+    // LibreOffice must open it and export the notes pages (opt in).
+    let (Ok(soffice), true) = (
+        std::env::var("HIVE_TEST_SOFFICE"),
+        std::process::Command::new("pdftotext")
+            .arg("-v")
+            .output()
+            .is_ok(),
+    ) else {
+        eprintln!(
+            "skipped: set HIVE_TEST_SOFFICE and have pdftotext to check the notes in LibreOffice"
+        );
+        return;
+    };
+    let out = std::process::Command::new(soffice)
+        .args(["--headless", "--convert-to", "pdf:impress_pdf_Export:{\"ExportNotesPages\":{\"type\":\"boolean\",\"value\":\"true\"}}", "--outdir"])
+        .arg(dir.path().join("out")).arg(dir.path().join("deck.pptx")).env("HOME", dir.path()).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(
+        &std::process::Command::new("pdftotext")
+            .arg(dir.path().join("out/deck.pdf"))
+            .arg("-")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .to_string();
+    assert!(
+        text.contains("Saluda y presenta el tema.") && text.contains("Solo una línea."),
+        "{text}"
     );
 }

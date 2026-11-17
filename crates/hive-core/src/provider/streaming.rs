@@ -104,6 +104,7 @@ struct PartialTool {
 #[derive(Default)]
 pub struct Accumulator {
     text: Option<String>,
+    reasoning: String,
     tools: BTreeMap<usize, PartialTool>,
     usage: Option<Usage>,
     finish: Option<String>,
@@ -145,6 +146,9 @@ impl Accumulator {
                 .ok_or_else(|| Error::Provider("invalid stream delta".into()))?;
             if delta.get("refusal").is_some_and(|v| !v.is_null()) {
                 return Err(Error::Provider("provider refused the response".into()));
+            }
+            if let Some(reasoning) = delta.get("reasoning_content").and_then(Value::as_str) {
+                self.reasoning.push_str(reasoning);
             }
             if let Some(content) = delta.get("content").filter(|v| !v.is_null()) {
                 let text = content
@@ -254,7 +258,11 @@ impl Accumulator {
             return Err(Error::Provider("missing streamed tool calls".into()));
         }
         Ok(ModelReply {
-            provider_state: None,
+            provider_state: (!self.reasoning.is_empty()).then_some(
+                crate::ProviderState::Reasoning {
+                    content: self.reasoning,
+                },
+            ),
             content: self.text,
             tool_calls: calls,
             usage: self.usage,

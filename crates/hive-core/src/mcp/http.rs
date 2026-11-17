@@ -38,6 +38,8 @@ pub(super) struct HttpSession {
     id: u64,
     max_bytes: usize,
     max_messages: usize,
+    /// Set when the server said `notifications/tools/list_changed`.
+    pub(super) changed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 impl HttpSession {
     pub(super) fn new(config: HttpConfig) -> Result<Self> {
@@ -92,6 +94,7 @@ impl HttpSession {
             id: 0,
             max_bytes: config.max_message_bytes,
             max_messages: config.max_messages,
+            changed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
     fn headers(&self) -> HeaderMap {
@@ -161,6 +164,10 @@ impl HttpSession {
             if !method.is_string() || value.get("result").is_some() || value.get("error").is_some()
             {
                 return Err(error("invalid MCP server request"));
+            }
+            if method == "notifications/tools/list_changed" {
+                self.changed
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             }
             if let Some(id) = value.get("id") {
                 if !id.is_string() && !id.is_number() {

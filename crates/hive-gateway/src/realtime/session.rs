@@ -24,6 +24,30 @@ use tokio_tungstenite::{
 };
 
 const MAX_MEDIA: usize = 768 * 1024;
+
+/// The base64 JPEG of a `video` message, or why it is refused.
+fn video_frame(value: &Value) -> std::result::Result<&str, &'static str> {
+    let data = value["data"].as_str().ok_or("Fotograma sin datos")?;
+    if data.len() > MAX_MEDIA * 4 / 3 + 8 {
+        return Err("Fotograma demasiado grande");
+    }
+    let decoded = STANDARD.decode(data).map_err(|_| "JPEG base64 inválido")?;
+    if !decoded.starts_with(&[0xff, 0xd8])
+        || decoded.len() > MAX_MEDIA
+        || value["mimeType"]
+            .as_str()
+            .is_some_and(|mime| mime != "image/jpeg")
+    {
+        return Err("HiveLive solo admite fotogramas JPEG");
+    }
+    if value["source"]
+        .as_str()
+        .is_some_and(|source| !matches!(source, "camera" | "screen"))
+    {
+        return Err("Fuente visual inválida");
+    }
+    Ok(data)
+}
 const MAX_TEXT: usize = 16_000;
 #[derive(PartialEq, Debug)]
 pub(crate) enum End {
@@ -388,13 +412,14 @@ impl LiveSession {
                                 send(remote,Message::text(json!({"realtimeInput":{"text":text}}).to_string())).await?;
                             }
                             Some("video")=> {
-                                let data=value["data"].as_str().ok_or("Fotograma sin datos")?;
-                                if data.len()>MAX_MEDIA*4/3+8 {return Err("Fotograma demasiado grande".into());}
-                                let decoded=STANDARD.decode(data).map_err(|_|"JPEG base64 inválido")?;
-                                if !decoded.starts_with(&[0xff,0xd8]) || decoded.len()>MAX_MEDIA || value["mimeType"].as_str().is_some_and(|mime|mime!="image/jpeg") {return Err("HiveLive solo admite fotogramas JPEG".into());}
-                                if value["source"].as_str().is_some_and(|source|!matches!(source,"camera"|"screen")) {return Err("Fuente visual inválida".into());}
-                                self.idle=Instant::now();
-                                send(remote,Message::text(json!({"realtimeInput":{"video":{"data":data,"mimeType":"image/jpeg"}}}).to_string())).await?;
+                                match video_frame(&value) {
+                                    Ok(data)=> {
+                                        self.idle=Instant::now();
+                                        send(remote,Message::text(json!({"realtimeInput":{"video":{"data":data,"mimeType":"image/jpeg"}}}).to_string())).await?;
+                                    }
+                                    // One bad frame is that frame's problem, not the call's: the client is told and the call goes on.
+                                    Err(reason)=> send(client,Message::text(json!({"type":"error","error":reason}).to_string())).await?,
+                                }
                             }
                             Some("interrupt")=> {
                                 self.suppress=self.generating.is_some();
@@ -557,7 +582,7 @@ pub(crate) async fn serve<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                 let mut remote=connected.ok_or("Gemini Live no está disponible")?;
                 if first {session.ready(&mut client).await?;first=false;}
                 let host=app.clone();let owner=user.clone();let thread=session.config.thread.clone();
-                let end=session.relay(&mut client,&mut remote,&cancel,&mut move|prompt,delivery|server::start_live_work(host.clone(),owner.clone(),thread.clone(),prompt,delivery)).await?;
+                let end=session.relay(&mut client,&mut remote,&cancel,&mut move|prompt,delivery|server::start_live_work(host.clone(),owner.clone(),thread.clone(),prompt,delivery,false)).await?;
                 let _=tokio::time::timeout(Duration::from_secs(1),remote.close(None)).await;
                 if end==End::Closed {return Ok(());}
             }

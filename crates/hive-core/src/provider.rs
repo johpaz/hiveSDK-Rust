@@ -1,5 +1,8 @@
 //! Rust HTTP transport. Credentials never enter serialized engine state.
-use crate::{AttachmentKind, Error, Message, ModelReply, ModelRequest, Result, ToolCall, Usage};
+use crate::{
+    AttachmentKind, Error, Message, ModelReply, ModelRequest, ProviderState, Result, ToolCall,
+    Usage,
+};
 pub use profile::{OpenAiProfile, Preset, presets};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -11,6 +14,7 @@ pub use tokio_util::sync::CancellationToken;
 pub mod anthropic;
 pub mod gemini;
 pub mod hiveagents;
+pub mod ollama;
 pub mod profile;
 mod resilience;
 pub mod streaming;
@@ -25,6 +29,33 @@ pub struct OpenAiConfig {
     pub max_response_bytes: usize,
     #[serde(default)]
     pub output_token_parameter: OutputTokenParameter,
+    /// The model's context window in tokens. When a request names no output limit, one is
+    /// derived from it (see [`derive_output_cap`]) instead of leaving the server's default.
+    #[serde(default)]
+    pub context_window: Option<u64>,
+}
+
+/// Longest output limit derived from a context window.
+pub const MAX_DERIVED_OUTPUT_TOKENS: u64 = 32_768;
+
+/// The output limit for a model with this context window: 15% of it (the share Hive reserves for
+/// the answer), at least 1 and at most [`MAX_DERIVED_OUTPUT_TOKENS`]. A request that names its own
+/// limit never uses this.
+pub fn derive_output_cap(context_window: u64) -> u64 {
+    (context_window.saturating_mul(15) / 100).clamp(1, MAX_DERIVED_OUTPUT_TOKENS)
+}
+
+/// The limit a provider uses when a request names none: the configured default, else one derived
+/// from the context window, else 4096.
+pub(crate) fn resolve_output_cap(default: Option<u64>, context_window: Option<u64>) -> Result<u64> {
+    match (default, context_window) {
+        (Some(0), _) | (_, Some(0)) => Err(Error::Input(
+            "default_max_output_tokens and context_window must be positive".into(),
+        )),
+        (Some(explicit), _) => Ok(explicit),
+        (None, Some(window)) => Ok(derive_output_cap(window)),
+        (None, None) => Ok(4096),
+    }
 }
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -183,6 +214,7 @@ impl NativeProvider {
             Some("anthropic") => anthropic::Anthropic::new(serde_json::from_value(config)?)?.inner,
             Some("gemini") => gemini::Gemini::new(serde_json::from_value(config)?)?.inner,
             Some("hiveagents") => hiveagents::create(serde_json::from_value(config)?)?.inner,
+            Some("ollama") => ollama::Ollama::new(serde_json::from_value(config)?)?.inner,
             _ => return Err(Error::Input("unknown native provider kind".into())),
         };
         let mut inner = inner;
@@ -213,6 +245,7 @@ enum Protocol {
     Gemini {
         default_max_output_tokens: u64,
     },
+    Ollama(ollama::Options),
 }
 struct HttpProvider {
     managed: Option<hiveagents::Managed>,
@@ -351,6 +384,8 @@ impl HttpProvider {
                 Protocol::OpenAi => InputTokenFraming::OpenaiChatJson,
                 Protocol::Anthropic { .. } => InputTokenFraming::AnthropicMessagesJson,
                 Protocol::Gemini { .. } => InputTokenFraming::GeminiGenerateContentJson,
+                // Ollama's chat messages have the shape of OpenAI's.
+                Protocol::Ollama(_) => InputTokenFraming::OpenaiChatJson,
             };
             if estimate.framing != InputTokenFraming::NeutralJson && estimate.framing != expected {
                 return Err(Error::Input(
@@ -358,12 +393,16 @@ impl HttpProvider {
                 ));
             }
         }
-        if !matches!(self.protocol, Protocol::Gemini { .. })
-            && request
-                .messages
-                .iter()
-                .any(|message| message.provider_state.is_some())
-        {
+        // Reasoning travels through OpenAI-compatible providers; Gemini's own state only through Gemini.
+        let foreign_state = |message: &crate::Message| {
+            !matches!(
+                (&self.protocol, &message.provider_state),
+                (_, None)
+                    | (Protocol::Gemini { .. }, Some(_))
+                    | (Protocol::OpenAi, Some(ProviderState::Reasoning { .. }))
+            )
+        };
+        if request.messages.iter().any(foreign_state) {
             return Err(Error::Input(
                 "provider state cannot be replayed through a different protocol".into(),
             ));
@@ -378,6 +417,7 @@ impl HttpProvider {
             )));
         }
         let mut restore = profile::NameMap::new();
+        let tool_names: Vec<String> = request.tools.iter().map(|tool| tool.name.clone()).collect();
         let mut body = match &self.protocol {
             Protocol::OpenAi => {
                 let mut body = request_body(request)?;
@@ -391,9 +431,19 @@ impl HttpProvider {
             Protocol::Gemini {
                 default_max_output_tokens,
             } => gemini::request_body(request, *default_max_output_tokens)?,
+            Protocol::Ollama(options) => ollama::request_body(request, options)?,
         };
         if request.max_output_tokens == Some(0) {
             return Err(Error::Input("output token limit must be positive".into()));
+        }
+        if matches!(self.protocol, Protocol::OpenAi)
+            && request.max_output_tokens.is_none()
+            && let Some(window) = self.config.context_window
+        {
+            if window == 0 {
+                return Err(Error::Input("context_window must be positive".into()));
+            }
+            body["max_completion_tokens"] = json!(derive_output_cap(window));
         }
         if matches!(self.protocol, Protocol::OpenAi)
             && matches!(
@@ -424,6 +474,7 @@ impl HttpProvider {
             Protocol::OpenAi => "chat/completions".into(),
             Protocol::Anthropic { .. } => "messages".into(),
             Protocol::Gemini { .. } => gemini::route(&request.model, stream)?,
+            Protocol::Ollama(_) => "chat".into(),
         };
         let endpoint = format!("{}/{route}", self.config.base_url.trim_end_matches('/'));
         let build = || {
@@ -505,9 +556,13 @@ impl HttpProvider {
                 Protocol::OpenAi => parse_reply(body)?,
                 Protocol::Anthropic { .. } => anthropic::parse_reply(body)?,
                 Protocol::Gemini { .. } => gemini::parse_reply(body)?,
+                Protocol::Ollama(_) => ollama::parse_reply(body)?,
             };
-            profile::restore_names(&mut reply, &restore);
+            profile::finish_reply(&self.profile, &restore, &tool_names, &mut reply);
             return send(sender, ModelEvent::Reply { reply }).await;
+        }
+        if matches!(self.protocol, Protocol::Ollama(_)) {
+            return ollama::stream(response, self.config.max_response_bytes, sender).await;
         }
         let mut decoder = streaming::SseDecoder::default();
         let mut accumulator = streaming::Accumulator::default();
@@ -522,7 +577,7 @@ impl HttpProvider {
             for frame in decoder.feed(&chunk)? {
                 if matches!(self.protocol, Protocol::OpenAi) && frame.trim() == "[DONE]" {
                     let mut reply = accumulator.finish()?;
-                    profile::restore_names(&mut reply, &restore);
+                    profile::finish_reply(&self.profile, &restore, &tool_names, &mut reply);
                     send(sender, ModelEvent::Reply { reply }).await?;
                     return Ok(());
                 }
@@ -532,6 +587,7 @@ impl HttpProvider {
                     Protocol::OpenAi => accumulator.push(value)?,
                     Protocol::Anthropic { .. } => anthropic_accumulator.push(value)?,
                     Protocol::Gemini { .. } => gemini_accumulator.push(value)?,
+                    Protocol::Ollama(_) => unreachable!("handled above"),
                 };
                 let complete = events
                     .iter()
@@ -540,7 +596,7 @@ impl HttpProvider {
                     // Fragments in ToolCallDelta keep the wire name; only the
                     // completed reply is mapped back to the original tool name.
                     if let ModelEvent::Reply { reply } = &mut event {
-                        profile::restore_names(reply, &restore);
+                        profile::finish_reply(&self.profile, &restore, &tool_names, reply);
                     }
                     send(sender, event).await?;
                 }
@@ -562,7 +618,7 @@ impl HttpProvider {
         Err(Error::Provider(match self.protocol {
             Protocol::OpenAi => "stream ended before [DONE]".into(),
             Protocol::Anthropic { .. } => "stream ended before message_stop".into(),
-            Protocol::Gemini { .. } => unreachable!(),
+            Protocol::Gemini { .. } | Protocol::Ollama(_) => unreachable!(),
         }))
     }
 }
@@ -621,13 +677,65 @@ fn user_parts(message: &Message) -> Result<Value> {
 }
 
 /// Convert the neutral contract into Chat Completions wire messages.
+/// A history the provider will accept: every `tool` message answers a call an earlier assistant
+/// message made, and every call an assistant message made is answered. Windowing or compaction can
+/// leave either half behind, and providers refuse the request ("tool_call_id not found",
+/// "tool_calls must be followed by tool messages"). What is left is dropped from the request only,
+/// never from the stored history. A complete history comes back unchanged.
+pub(crate) fn sanitize_orphan_tool_calls(messages: &[Message]) -> Vec<Message> {
+    use std::collections::HashSet;
+    let answered: HashSet<&str> = messages
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| m.tool_call_id.as_deref())
+        .collect();
+    let mut issued: HashSet<String> = HashSet::new();
+    let mut out = Vec::with_capacity(messages.len());
+    for message in messages {
+        if message.role == "tool" {
+            // Only an answer to a call made earlier, and only the first answer to it.
+            match message.tool_call_id.as_deref() {
+                Some(id) if issued.remove(id) => out.push(message.clone()),
+                _ => {}
+            }
+            continue;
+        }
+        if message.tool_calls.is_empty() {
+            out.push(message.clone());
+            continue;
+        }
+        let mut kept = message.clone();
+        kept.tool_calls
+            .retain(|call| answered.contains(call.id.as_str()));
+        for call in &kept.tool_calls {
+            issued.insert(call.id.clone());
+        }
+        let has_text = kept
+            .content
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty());
+        if kept.tool_calls.is_empty() && !has_text {
+            continue; // nothing of it is left to say
+        }
+        out.push(kept);
+    }
+    out
+}
+
 pub fn request_body(request: &ModelRequest) -> Result<Value> {
     crate::media::ensure_user_only(&request.messages)?;
-    let messages: Vec<Value> = request
-        .messages
+    let history = sanitize_orphan_tool_calls(&request.messages);
+    let messages: Vec<Value> = history
         .iter()
         .map(|m| {
             let mut v = json!({ "role": m.role, "content": m.content });
+            // Sent only to providers whose profile asks for it (`round_trip_reasoning`); the
+            // profile strips it from everyone else's request.
+            if m.role == "assistant"
+                && let Some(ProviderState::Reasoning { content }) = &m.provider_state
+            {
+                v["reasoning_content"] = json!(content);
+            }
             if !m.attachments.is_empty() {
                 if m.role != "user" {
                     return Err(Error::Input(
@@ -724,8 +832,15 @@ pub fn parse_reply(body: Value) -> Result<ModelReply> {
             "response has neither text nor tool calls".into(),
         ));
     }
+    let reasoning = message
+        .get("reasoning_content")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(|text| ProviderState::Reasoning {
+            content: text.to_owned(),
+        });
     Ok(ModelReply {
-        provider_state: None,
+        provider_state: reasoning,
         content,
         tool_calls: calls,
         usage,

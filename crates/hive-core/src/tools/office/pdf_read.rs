@@ -6,7 +6,10 @@
 //! streams, decoded with each font's `ToUnicode` map or simple encoding. This is
 //! an extractor, not a renderer: encrypted files, fonts with no Unicode mapping,
 //! scanned images and exotic filters are reported as warnings, never guessed.
-use super::{Deadline, invalid};
+use super::{
+    Deadline, invalid,
+    pdf_crypt::{Crypt, Method, Params},
+};
 use crate::Result;
 use serde_json::{Value, json};
 use std::{
@@ -28,7 +31,7 @@ type Dict = BTreeMap<String, Obj>;
 #[derive(Clone, Debug)]
 enum Obj {
     Null,
-    Bool,
+    Bool(bool),
     Num(f64),
     Str(Vec<u8>),
     Name(String),
@@ -43,6 +46,9 @@ struct Stream {
     dict: Dict,
     start: usize,
     len: usize,
+    /// The indirect object it belongs to, which keys its encryption.
+    object: u32,
+    generation: u16,
 }
 
 fn is_space(byte: u8) -> bool {
@@ -250,7 +256,8 @@ impl<'a> Lexer<'a> {
                     return Err(invalid("unexpected PDF byte"));
                 }
                 match token {
-                    b"true" | b"false" => return Ok(Obj::Bool),
+                    b"true" => return Ok(Obj::Bool(true)),
+                    b"false" => return Ok(Obj::Bool(false)),
                     b"null" => return Ok(Obj::Null),
                     _ => {}
                 }
@@ -290,15 +297,45 @@ fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
         .map(|at| at + from)
 }
 
+fn decrypt_strings(value: &mut Obj, crypt: &Crypt, object: u32, generation: u16, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    match value {
+        Obj::Str(bytes) => {
+            if let Ok(plain) = crypt.decrypt(crypt.string, object, generation, bytes) {
+                *bytes = plain;
+            }
+        }
+        Obj::Array(items) => items
+            .iter_mut()
+            .for_each(|item| decrypt_strings(item, crypt, object, generation, depth + 1)),
+        Obj::Dict(dict) => dict
+            .values_mut()
+            .for_each(|item| decrypt_strings(item, crypt, object, generation, depth + 1)),
+        Obj::Stream(stream) => {
+            if let Some(stream) = Rc::get_mut(stream) {
+                stream
+                    .dict
+                    .values_mut()
+                    .for_each(|item| decrypt_strings(item, crypt, object, generation, depth + 1));
+            }
+        }
+        _ => {}
+    }
+}
+
 struct Document<'a> {
     data: &'a [u8],
     objects: HashMap<u32, Obj>,
     trailer: Dict,
     warnings: Vec<String>,
+    generations: HashMap<u32, u16>,
+    crypt: Option<Crypt>,
 }
 
 impl<'a> Document<'a> {
-    fn load(data: &'a [u8], deadline: &Deadline) -> Result<Self> {
+    fn load(data: &'a [u8], password: Option<&str>, deadline: &Deadline) -> Result<Self> {
         if find(data, b"%PDF-", 0).is_none_or(|at| at > 1024) {
             return Err(invalid("not a PDF file"));
         }
@@ -307,6 +344,8 @@ impl<'a> Document<'a> {
             objects: HashMap::new(),
             trailer: Dict::new(),
             warnings: Vec::new(),
+            generations: HashMap::new(),
+            crypt: None,
         };
         let mut at = 0;
         let mut scanned = 0usize;
@@ -352,6 +391,10 @@ impl<'a> Document<'a> {
             else {
                 continue;
             };
+            let generation = std::str::from_utf8(&data[number_end..found])
+                .ok()
+                .and_then(|text| text.trim().parse::<u16>().ok())
+                .unwrap_or(0);
             let mut lexer = Lexer {
                 data,
                 pos: found + 3,
@@ -402,6 +445,8 @@ impl<'a> Document<'a> {
                                     dict,
                                     start,
                                     len: end - start,
+                                    object: number,
+                                    generation,
                                 }))
                             }
                             None => Obj::Dict(dict),
@@ -415,6 +460,7 @@ impl<'a> Document<'a> {
             if document.objects.len() >= MAX_OBJECTS {
                 return Err(invalid("the PDF has too many objects"));
             }
+            document.generations.insert(number, generation);
             document.objects.insert(number, value);
         }
         // Trailers: classic `trailer << … >>` dictionaries and cross-reference streams.
@@ -434,17 +480,123 @@ impl<'a> Document<'a> {
             })
             .collect();
         for dict in xrefs {
-            for key in ["Root", "Encrypt", "Info"] {
+            for key in ["Root", "Encrypt", "Info", "ID"] {
                 if let Some(value) = dict.get(key) {
                     document.trailer.insert(key.to_owned(), value.clone());
                 }
             }
         }
         if document.trailer.contains_key("Encrypt") {
-            return Err(invalid("encrypted PDFs are not supported"));
+            document.unlock(password)?;
         }
         document.expand_object_streams(deadline)?;
         Ok(document)
+    }
+
+    /// Open an encrypted file with `password` (the empty user password by default) and decrypt
+    /// every string; streams are decrypted as they are read.
+    fn unlock(&mut self, password: Option<&str>) -> Result<()> {
+        let encrypt_object = match self.trailer.get("Encrypt") {
+            Some(Obj::Ref(number)) => Some(*number),
+            _ => None,
+        };
+        let dict = match self.trailer.get("Encrypt").map(|value| self.resolve(value)) {
+            Some(Obj::Dict(dict)) => dict.clone(),
+            _ => return Err(invalid("malformed PDF encryption dictionary")),
+        };
+        if !matches!(self.name(&dict, "Filter"), Some("Standard")) {
+            return Err(invalid(
+                "this PDF uses a security handler other than the standard password one, which is not supported",
+            ));
+        }
+        let number = |key: &str| self.number(dict.get(key));
+        let bytes = |key: &str| match self.get(&dict, key) {
+            Obj::Str(value) => value.clone(),
+            _ => Vec::new(),
+        };
+        let version = number("V").unwrap_or(0.0) as u32;
+        let revision = number("R").unwrap_or(0.0) as u32;
+        if version == 3 || version > 5 {
+            return Err(invalid("unsupported PDF encryption version"));
+        }
+        let method = |key: &str| -> Result<Method> {
+            if version < 4 {
+                return Ok(Method::Rc4);
+            }
+            let Some(name) = self.name(&dict, key) else {
+                return Ok(Method::Identity);
+            };
+            if name == "Identity" {
+                return Ok(Method::Identity);
+            }
+            let filters = match self.get(&dict, "CF") {
+                Obj::Dict(filters) => filters,
+                _ => return Err(invalid("malformed PDF encryption dictionary")),
+            };
+            let filter = self
+                .dict_of(filters.get(name).unwrap_or(&Obj::Null))
+                .ok_or_else(|| invalid("malformed PDF encryption dictionary"))?;
+            match self.name(filter, "CFM") {
+                Some("None") => Ok(Method::Identity),
+                Some("V2") => Ok(Method::Rc4),
+                Some("AESV2") => Ok(Method::AesV2),
+                Some("AESV3") => Ok(Method::AesV3),
+                _ => Err(invalid("unsupported PDF crypt filter")),
+            }
+        };
+        let id0 = match self.trailer.get("ID").map(|id| self.resolve(id)) {
+            Some(Obj::Array(items)) => match items.first().map(|item| self.resolve(item)) {
+                Some(Obj::Str(id)) => id.clone(),
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
+        let params = Params {
+            v: version,
+            r: revision,
+            key_bits: number("Length").map_or(40, |bits| bits as u32),
+            o: bytes("O"),
+            u: bytes("U"),
+            ue: bytes("UE"),
+            p: number("P").unwrap_or(0.0) as i64,
+            encrypt_metadata: !matches!(dict.get("EncryptMetadata"), Some(Obj::Bool(false))),
+            stream: method("StmF")?,
+            string: method("StrF")?,
+            id0,
+        };
+        let crypt = Crypt::open(&params, password.unwrap_or("")).map_err(|error| {
+            match (&error, password) {
+                (crate::Error::Input(message), None)
+                    if message.starts_with("incorrect password") =>
+                {
+                    invalid("this PDF is password protected: give its password in `password`")
+                }
+                _ => error,
+            }
+        })?;
+        // Strings of top-level objects; those inside object streams come out of an already
+        // decrypted stream and must not be decrypted again.
+        let numbers: Vec<u32> = self.objects.keys().copied().collect();
+        for object in numbers {
+            if Some(object) == encrypt_object {
+                continue;
+            }
+            let generation = self.generations.get(&object).copied().unwrap_or(0);
+            if let Some(value) = self.objects.get_mut(&object) {
+                decrypt_strings(value, &crypt, object, generation, 0);
+            }
+        }
+        self.warnings.push(format!(
+            "the PDF is encrypted ({}); it was opened with {}",
+            crypt.description,
+            if password.is_some() {
+                "the given password"
+            } else {
+                "the empty password"
+            }
+        ));
+        self.crypt = Some(crypt);
+        Ok(())
     }
 
     fn expand_object_streams(&mut self, deadline: &Deadline) -> Result<()> {
@@ -529,7 +681,34 @@ impl<'a> Document<'a> {
 
     /// Decoded bytes of a stream; filters beyond Flate and the ASCII ones fail.
     fn decode(&self, stream: &Stream) -> Result<Vec<u8>> {
+        self.decode_inner(stream, false)
+    }
+
+    /// As `decode`; for an image the picture filters (`DCTDecode`) are left in place and predictors are the
+    /// caller's to undo, so a JPEG comes back as the JPEG it is.
+    fn decode_inner(&self, stream: &Stream, image: bool) -> Result<Vec<u8>> {
         let mut bytes = self.data[stream.start..stream.start + stream.len].to_vec();
+        if let Some(crypt) = &self.crypt {
+            let kind = match stream.dict.get("Type") {
+                Some(Obj::Name(name)) => name.as_str(),
+                _ => "",
+            };
+            let has_crypt_filter = match self.get(&stream.dict, "Filter") {
+                Obj::Name(name) => name == "Crypt",
+                Obj::Array(items) => items
+                    .iter()
+                    .any(|item| matches!(self.resolve(item), Obj::Name(name) if name == "Crypt")),
+                _ => false,
+            };
+            // Cross-reference streams are never encrypted, and metadata only when asked; a
+            // /Crypt filter means the stream names its own filter (only Identity is common).
+            let exempt = kind == "XRef"
+                || (kind == "Metadata" && !crypt.encrypt_metadata)
+                || has_crypt_filter;
+            if !exempt {
+                bytes = crypt.decrypt(crypt.stream, stream.object, stream.generation, &bytes)?;
+            }
+        }
         let filters: Vec<String> = match self.get(&stream.dict, "Filter") {
             Obj::Name(name) => vec![name.clone()],
             Obj::Array(items) => items
@@ -546,10 +725,12 @@ impl<'a> Document<'a> {
             Obj::Array(items) => items.first().and_then(|item| self.dict_of(item)),
             _ => None,
         };
-        if parameters.is_some_and(|dict| {
-            self.number(dict.get("Predictor"))
-                .is_some_and(|value| value > 1.0)
-        }) {
+        if !image
+            && parameters.is_some_and(|dict| {
+                self.number(dict.get("Predictor"))
+                    .is_some_and(|value| value > 1.0)
+            })
+        {
             return Err(invalid("stream predictors are not supported"));
         }
         for filter in filters {
@@ -587,6 +768,9 @@ impl<'a> Document<'a> {
                         .collect()
                 }
                 "ASCII85Decode" | "A85" => ascii85(&bytes)?,
+                // Already handled above (decryption); nothing to undo here.
+                "Crypt" => bytes,
+                "DCTDecode" | "DCT" if image => bytes,
                 other => return Err(invalid(&format!("unsupported stream filter `{other}`"))),
             };
         }
@@ -1267,9 +1451,10 @@ pub(super) fn read(
     bytes: &[u8],
     start: Option<u64>,
     end: Option<u64>,
+    password: Option<&str>,
     deadline: &Deadline,
 ) -> Result<Value> {
-    let document = Document::load(bytes, deadline)?;
+    let document = Document::load(bytes, password, deadline)?;
     let leaves = document.pages()?;
     let total = leaves.len();
     if total == 0 {
@@ -1376,6 +1561,291 @@ pub(super) fn read(
     })
     .collect();
     Ok(
-        json!({"total_pages":total,"pages":pages,"text":joined.join("\n\n"),"metadata":metadata,"warnings":warnings}),
+        json!({"total_pages":total,"pages":pages,"text":joined.join("\n\n"),"metadata":metadata,"warnings":warnings,
+            "encryption":document.crypt.as_ref().map(|crypt| crypt.description)}),
     )
+}
+
+// ─── Page pictures (scanned pages) ───────────────────────────────────────────
+
+/// One picture found on a page.
+pub struct PageImage {
+    pub page: usize,
+    /// `image/jpeg` (the embedded file, as it is) or `image/png` (re-encoded from raw pixels).
+    pub media_type: &'static str,
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// What `page_images` found: the pictures, and in plain words every page it could not give one for.
+pub struct PageImages {
+    pub total_pages: usize,
+    pub images: Vec<PageImage>,
+    pub warnings: Vec<String>,
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    static TABLE: OnceLock<[u32; 256]> = OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let mut table = [0u32; 256];
+        for (n, slot) in table.iter_mut().enumerate() {
+            let mut c = n as u32;
+            for _ in 0..8 {
+                c = if c & 1 == 1 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+            *slot = c;
+        }
+        table
+    });
+    !bytes.iter().fold(!0u32, |c, b| {
+        table[((c ^ *b as u32) & 0xFF) as usize] ^ (c >> 8)
+    })
+}
+
+/// A PNG of 8-bit gray (`channels` 1) or RGB (`channels` 3) pixels.
+fn png(width: u32, height: u32, channels: usize, pixels: &[u8]) -> Vec<u8> {
+    let row = width as usize * channels;
+    let mut raw = Vec::with_capacity((row + 1) * height as usize);
+    for line in pixels.chunks(row).take(height as usize) {
+        raw.push(0);
+        raw.extend_from_slice(line);
+    }
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut chunk = |kind: &[u8; 4], data: &[u8]| {
+        out.extend((data.len() as u32).to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        out.extend(&body);
+        out.extend(crc32(&body).to_be_bytes());
+    };
+    let mut header = Vec::new();
+    header.extend(width.to_be_bytes());
+    header.extend(height.to_be_bytes());
+    header.extend([8, if channels == 1 { 0 } else { 2 }, 0, 0, 0]);
+    chunk(b"IHDR", &header);
+    chunk(
+        b"IDAT",
+        &miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
+    );
+    chunk(b"IEND", &[]);
+    out
+}
+
+/// Undo PNG row predictors (`/Predictor` 10–15) on already inflated data.
+fn unpredict(data: &[u8], columns: usize, colors: usize, bits: usize) -> Result<Vec<u8>> {
+    let bpp = (colors * bits).div_ceil(8).max(1);
+    let row = (columns * colors * bits).div_ceil(8);
+    let mut out = Vec::with_capacity(data.len());
+    let mut previous = vec![0u8; row];
+    for line in data.chunks(row + 1) {
+        let (&filter, body) = line
+            .split_first()
+            .ok_or_else(|| invalid("corrupt image rows"))?;
+        let mut current = body.to_vec();
+        current.resize(row, 0);
+        for i in 0..row {
+            let left = if i >= bpp { current[i - bpp] } else { 0 };
+            let up = previous[i];
+            let corner = if i >= bpp { previous[i - bpp] } else { 0 };
+            let add = match filter {
+                0 => 0,
+                1 => left,
+                2 => up,
+                3 => ((left as u16 + up as u16) / 2) as u8,
+                4 => {
+                    let (a, b, c) = (left as i32, up as i32, corner as i32);
+                    let p = a + b - c;
+                    let (pa, pb, pc) = ((p - a).abs(), (p - b).abs(), (p - c).abs());
+                    (if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        b
+                    } else {
+                        c
+                    }) as u8
+                }
+                _ => return Err(invalid("unknown image row filter")),
+            };
+            current[i] = current[i].wrapping_add(add);
+        }
+        out.extend_from_slice(&current);
+        previous = current;
+    }
+    Ok(out)
+}
+
+type ImageFile = (&'static str, Vec<u8>, u32, u32);
+
+impl Document<'_> {
+    /// The picture of an image XObject as a file a model can be shown, or why not.
+    fn image_file(&self, stream: &Stream) -> std::result::Result<ImageFile, String> {
+        let width = self.number(stream.dict.get("Width")).unwrap_or(0.0) as u32;
+        let height = self.number(stream.dict.get("Height")).unwrap_or(0.0) as u32;
+        if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 400_000_000 {
+            return Err("tamaño de imagen no válido".into());
+        }
+        let filters: Vec<String> = match self.get(&stream.dict, "Filter") {
+            Obj::Name(name) => vec![name.clone()],
+            Obj::Array(items) => items
+                .iter()
+                .filter_map(|item| match self.resolve(item) {
+                    Obj::Name(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => vec![],
+        };
+        let last = filters.last().map(String::as_str).unwrap_or("");
+        match last {
+            "JPXDecode" => return Err("JPEG 2000 (JPXDecode) no está soportado".into()),
+            "CCITTFaxDecode" | "CCF" => return Err("imagen CCITT (fax) no soportada".into()),
+            "JBIG2Decode" => return Err("imagen JBIG2 no soportada".into()),
+            "LZWDecode" | "LZW" | "RunLengthDecode" | "RL" => {
+                return Err(format!("filtro {last} no soportado"));
+            }
+            _ => {}
+        }
+        let data = self.decode_inner(stream, true).map_err(|e| e.to_string())?;
+        if matches!(last, "DCTDecode" | "DCT") {
+            return Ok(("image/jpeg", data, width, height));
+        }
+        let bits = self
+            .number(stream.dict.get("BitsPerComponent"))
+            .unwrap_or(8.0) as usize;
+        let space = match self.get(&stream.dict, "ColorSpace") {
+            Obj::Name(name) => name.clone(),
+            Obj::Array(items) => match items.first().map(|item| self.resolve(item)) {
+                Some(Obj::Name(name)) if name == "ICCBased" => {
+                    let n = items
+                        .get(1)
+                        .and_then(|item| self.dict_of(item))
+                        .and_then(|dict| self.number(dict.get("N")))
+                        .unwrap_or(0.0) as u32;
+                    match n {
+                        1 => "DeviceGray".to_string(),
+                        3 => "DeviceRGB".to_string(),
+                        _ => "ICC".to_string(),
+                    }
+                }
+                Some(Obj::Name(name)) => name.clone(),
+                _ => String::new(),
+            },
+            _ => String::new(),
+        };
+        let channels = match space.as_str() {
+            "DeviceGray" | "CalGray" | "G" => 1,
+            "DeviceRGB" | "CalRGB" | "RGB" => 3,
+            other => return Err(format!("espacio de color {other} no soportado")),
+        };
+        if bits != 8 && !(bits == 1 && channels == 1) {
+            return Err(format!("{bits} bits por componente no soportado"));
+        }
+        let parameters = match self.get(&stream.dict, "DecodeParms") {
+            Obj::Dict(dict) => Some(dict),
+            Obj::Array(items) => items.last().and_then(|item| self.dict_of(item)),
+            _ => None,
+        };
+        let number = |key: &str, default: f64| {
+            parameters
+                .and_then(|dict| self.number(dict.get(key)))
+                .unwrap_or(default) as usize
+        };
+        let predictor = number("Predictor", 1.0);
+        let data = if predictor >= 10 {
+            unpredict(&data, number("Columns", 1.0), number("Colors", 1.0), bits)
+                .map_err(|e| e.to_string())?
+        } else if predictor > 1 {
+            return Err("predictor TIFF no soportado".into());
+        } else {
+            data
+        };
+        let (w, h) = (width as usize, height as usize);
+        let pixels = if bits == 1 {
+            let row = w.div_ceil(8);
+            if data.len() < row * h {
+                return Err("datos de imagen incompletos".into());
+            }
+            let invert = matches!(self.get(&stream.dict, "Decode"), Obj::Array(d) if matches!(d.first(), Some(Obj::Num(n)) if *n == 1.0));
+            let mut out = Vec::with_capacity(w * h);
+            for y in 0..h {
+                for x in 0..w {
+                    let bit = (data[y * row + x / 8] >> (7 - x % 8)) & 1;
+                    out.push(if (bit == 1) != invert { 255 } else { 0 });
+                }
+            }
+            out
+        } else {
+            if data.len() < w * h * channels {
+                return Err("datos de imagen incompletos".into());
+            }
+            data
+        };
+        Ok((
+            "image/png",
+            png(width, height, channels, &pixels),
+            width,
+            height,
+        ))
+    }
+}
+
+/// The biggest picture of each page in `first..=last` (1-based): what a scanner leaves in a PDF.
+/// A page with none, or only a format that cannot be shown, is named in `warnings`, never guessed.
+pub(super) fn page_images(
+    bytes: &[u8],
+    first: usize,
+    last: usize,
+    password: Option<&str>,
+    deadline: &Deadline,
+) -> Result<PageImages> {
+    let document = Document::load(bytes, password, deadline)?;
+    let leaves = document.pages()?;
+    let total = leaves.len();
+    let mut images = Vec::new();
+    let mut warnings = document.warnings.clone();
+    for number in first.max(1)..=last.min(total) {
+        deadline.check("reading the PDF")?;
+        let (_, resources) = &leaves[number - 1];
+        let mut best: Option<(u64, &Stream)> = None;
+        if let Some(xobjects) = resources.get("XObject").and_then(|x| document.dict_of(x)) {
+            for object in xobjects.values() {
+                let Obj::Stream(stream) = document.resolve(object) else {
+                    continue;
+                };
+                if document.name(&stream.dict, "Subtype") != Some("Image")
+                    || matches!(document.get(&stream.dict, "ImageMask"), Obj::Bool(true))
+                {
+                    continue;
+                }
+                let area = document.number(stream.dict.get("Width")).unwrap_or(0.0) as u64
+                    * document.number(stream.dict.get("Height")).unwrap_or(0.0) as u64;
+                if best.is_none_or(|(a, _)| area > a) {
+                    best = Some((area, stream));
+                }
+            }
+        }
+        match best {
+            None => warnings.push(format!("página {number}: no tiene una imagen incrustada")),
+            Some((_, stream)) => match document.image_file(stream) {
+                Ok((media_type, data, width, height)) => images.push(PageImage {
+                    page: number,
+                    media_type,
+                    data,
+                    width,
+                    height,
+                }),
+                Err(why) => warnings.push(format!("página {number}: {why}")),
+            },
+        }
+    }
+    Ok(PageImages {
+        total_pages: total,
+        images,
+        warnings,
+    })
 }

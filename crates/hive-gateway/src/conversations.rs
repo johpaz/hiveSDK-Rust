@@ -10,10 +10,6 @@ pub(crate) fn wire(row: &Value) -> Value {
     json!({"id":row["id"],"title":row["title"],"channel":row["channel"],"peerKind":row["peer_kind"],
         "messageCount":row["message_count"].as_u64().unwrap_or(0),"lastMessageAt":row["last_message_at"].as_u64().unwrap_or(0),"createdAt":row["created_at"].as_u64().unwrap_or(0)})
 }
-fn current_user(app: &App) -> Result<String> {
-    let users = config::docs(&app.db, "users")?;
-    Ok(config::string(users.first().ok_or("Sin usuario")?, "id")?.to_owned())
-}
 pub fn owned(app: &App, thread: &str, user: &str) -> Result<bool> {
     Ok(app
         .db
@@ -21,6 +17,22 @@ pub fn owned(app: &App, thread: &str, user: &str) -> Result<bool> {
         .is_some_and(|row| {
             row.doc["user_id"] == user
                 && row.doc["channel"] == "webchat"
+                && row.doc["archived"] != true
+        }))
+}
+/// Whether a turn may run in this conversation for this user: their web chat, or a
+/// conversation of one of their channels. Only the web chat is readable through the web
+/// history and conversation routes (`owned`); channel threads stay out of them.
+pub fn runnable(app: &App, thread: &str, user: &str) -> Result<bool> {
+    Ok(app
+        .db
+        .col_get("conversationThreads", thread)?
+        .is_some_and(|row| {
+            row.doc["user_id"] == user
+                && matches!(
+                    row.doc["channel"].as_str(),
+                    Some("webchat" | "telegram" | "discord" | "slack" | "whatsapp" | "whatsapp_qr")
+                )
                 && row.doc["archived"] != true
         }))
 }
@@ -63,11 +75,12 @@ pub fn route(
     app: &App,
     path: &str,
     query: &std::collections::HashMap<String, String>,
+    user: &str,
 ) -> Result<Option<(u16, Value)>> {
     if !matches!(path, "/api/conversations" | "/api/chat/history") {
         return Ok(None);
     }
-    let user = current_user(app)?;
+    let user = user.to_owned();
     if path == "/api/conversations" {
         let mut rows: Vec<_> = config::docs(&app.db, "conversationThreads")?
             .into_iter()
@@ -150,7 +163,7 @@ pub fn route(
         let session = match cached {
             Some(handle) => Ok(handle),
             None => app
-                .selection()
+                .selection_for_user(&user)
                 .and_then(|selection| app.session(thread, &selection)),
         };
         session.and_then(|handle| {

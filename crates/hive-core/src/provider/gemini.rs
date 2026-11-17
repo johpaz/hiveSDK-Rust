@@ -17,24 +17,22 @@ pub struct GeminiConfig {
     pub timeout_ms: u64,
     #[serde(default = "super::default_response_limit")]
     pub max_response_bytes: usize,
-    #[serde(default = "default_output")]
-    pub default_max_output_tokens: u64,
-}
-fn default_output() -> u64 {
-    4096
+    /// Output limit for a request that names none. Without it, one is derived from
+    /// `context_window` (15%), else 4096.
+    #[serde(default)]
+    pub default_max_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window: Option<u64>,
 }
 pub struct Gemini {
     pub(super) inner: Arc<HttpProvider>,
 }
 impl Gemini {
     pub fn new(config: GeminiConfig) -> Result<Self> {
-        if config.default_max_output_tokens == 0 {
-            return Err(Error::Input(
-                "Gemini default_max_output_tokens must be positive".into(),
-            ));
-        }
+        let default_max_output_tokens =
+            super::resolve_output_cap(config.default_max_output_tokens, config.context_window)?;
         let protocol = Protocol::Gemini {
-            default_max_output_tokens: config.default_max_output_tokens,
+            default_max_output_tokens,
         };
         let common = OpenAiConfig {
             base_url: config.base_url,
@@ -42,6 +40,7 @@ impl Gemini {
             timeout_ms: config.timeout_ms,
             max_response_bytes: config.max_response_bytes,
             output_token_parameter: Default::default(),
+            context_window: None,
         };
         Ok(Self {
             inner: Arc::new(HttpProvider::new(common, protocol)?),
@@ -186,7 +185,11 @@ pub fn validate_state(
     content: &Option<String>,
     calls: &[ToolCall],
 ) -> Result<()> {
-    let ProviderState::Gemini { version, parts } = state;
+    let ProviderState::Gemini { version, parts } = state else {
+        return Err(Error::Input(
+            "provider state cannot be replayed through a different protocol".into(),
+        ));
+    };
     if *version != 1 {
         return Err(Error::Input("unsupported Gemini state version".into()));
     }
@@ -257,7 +260,10 @@ pub fn request_body(request: &ModelRequest, default_max_output_tokens: u64) -> R
                 }
                 let parts = if let Some(state) = &message.provider_state {
                     validate_state(state, &message.content, &message.tool_calls)?;
-                    let ProviderState::Gemini { parts, .. } = state;
+                    // `validate_state` above already refused any state that is not Gemini's.
+                    let ProviderState::Gemini { parts, .. } = state else {
+                        unreachable!("validated")
+                    };
                     parts.clone()
                 } else {
                     let mut parts = vec![];

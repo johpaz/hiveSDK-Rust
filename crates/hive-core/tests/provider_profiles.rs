@@ -505,3 +505,366 @@ async fn streaming_maps_the_final_reply_but_not_the_name_fragments() {
     assert_eq!(fragments, ["my__to", "ol"], "fragments keep the wire name");
     assert_eq!(reply.unwrap().tool_calls[0].name, "my.tool");
 }
+
+// ---- reasoning, thinking switches and orphaned tool calls ------------------------------------
+
+fn message(role: &str, content: Option<&str>) -> hive_agent_core::Message {
+    hive_agent_core::Message {
+        role: role.into(),
+        content: content.map(str::to_owned),
+        attachments: vec![],
+        tool_calls: vec![],
+        tool_call_id: None,
+        provider_state: None,
+    }
+}
+fn call(id: &str) -> hive_agent_core::ToolCall {
+    hive_agent_core::ToolCall {
+        id: id.into(),
+        name: "lookup".into(),
+        arguments: json!({}),
+    }
+}
+fn answer(id: &str) -> hive_agent_core::Message {
+    let mut result = message("tool", Some("{\"ok\":true}"));
+    result.tool_call_id = Some(id.into());
+    result
+}
+fn asks(id: &str, reasoning: Option<&str>) -> hive_agent_core::Message {
+    let mut assistant = message("assistant", None);
+    assistant.tool_calls = vec![call(id)];
+    assistant.provider_state = reasoning.map(|content| hive_agent_core::ProviderState::Reasoning {
+        content: content.into(),
+    });
+    assistant
+}
+const TEXT: &str = "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"listo\"}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1}}";
+
+#[tokio::test]
+async fn reasoning_content_is_kept_with_its_reply_and_sent_back_only_to_providers_that_need_it() {
+    // The reply of a reasoning model carries its thinking next to the tool call.
+    let thinking = reply(
+        json!({"choices":[{"finish_reason":"tool_calls","message":{"content":null,"reasoning_content":"primero busco",
+        "tool_calls":[{"id":"c1","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}],
+        "usage":{"prompt_tokens":3,"completion_tokens":1}}),
+    );
+    for preset in ["deepseek", "kimi", "openai"] {
+        let server = fake(thinking).await;
+        let got = complete(
+            &provider(preset, &server.base),
+            request("m", vec![tool("lookup", json!({"type":"object"}))]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            got.provider_state,
+            Some(hive_agent_core::ProviderState::Reasoning {
+                content: "primero busco".into()
+            }),
+            "{preset}: the reply keeps its reasoning"
+        );
+    }
+    // The next request replays the assistant message with it, for the providers whose profile asks for it.
+    for (preset, sent) in [
+        ("deepseek", true),
+        ("kimi", true),
+        ("openai", false),
+        ("nvidia", false),
+    ] {
+        let mut server = fake(Box::leak(format!("{CHAT}{TEXT}").into_boxed_str())).await;
+        let mut next = request(
+            "deepseek-chat",
+            vec![tool("lookup", json!({"type":"object"}))],
+        );
+        next.messages.push(asks("c1", Some("primero busco")));
+        next.messages.push(answer("c1"));
+        complete(&provider(preset, &server.base), next)
+            .await
+            .unwrap();
+        let body = body_of(&server.requests.recv().await.unwrap());
+        let assistant = &body["messages"][1];
+        assert_eq!(assistant["role"], "assistant");
+        assert_eq!(
+            assistant.get("reasoning_content").is_some(),
+            sent,
+            "{preset}: {assistant}"
+        );
+        if sent {
+            assert_eq!(assistant["reasoning_content"], "primero busco");
+        }
+        assert_eq!(
+            assistant["tool_calls"][0]["id"], "c1",
+            "the calls it came with are still there"
+        );
+    }
+    // Reasoning is OpenAI-compatible state: it is not replayed through another protocol.
+    let server = fake(Box::leak(format!("{CHAT}{TEXT}").into_boxed_str())).await;
+    let mut next = request("claude", vec![]);
+    next.messages.push(asks("c1", Some("x")));
+    next.messages.push(answer("c1"));
+    let anthropic = NativeProvider::from_json(
+        &json!({"preset":"anthropic","base_url":server.base}).to_string(),
+    )
+    .unwrap();
+    assert!(
+        complete(&anthropic, next).await.is_err(),
+        "Anthropic refuses another provider's state"
+    );
+}
+
+#[tokio::test]
+async fn streamed_reasoning_deltas_are_assembled_into_the_replys_state() {
+    let sse = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n"
+        .to_owned()
+        + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"pienso \"}}]}\n\n"
+        + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"un poco\"}}]}\n\n"
+        + "data: {\"choices\":[{\"delta\":{\"content\":\"Hola\"}}]}\n\n"
+        + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+        + "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1}}\n\n"
+        + "data: [DONE]\n\n";
+    let server = fake(Box::leak(sse.into_boxed_str())).await;
+    let stream = provider("deepseek", &server.base).start(request("deepseek-chat", vec![]), true);
+    let mut got = None;
+    while let Some(event) = stream.next().await.unwrap() {
+        if let ModelEvent::Reply { reply } = event {
+            got = Some(reply);
+        }
+    }
+    let got = got.unwrap();
+    assert_eq!(got.content.as_deref(), Some("Hola"));
+    assert_eq!(
+        got.provider_state,
+        Some(hive_agent_core::ProviderState::Reasoning {
+            content: "pienso un poco".into()
+        })
+    );
+}
+
+#[tokio::test]
+async fn nvidia_thinking_is_switched_on_per_model_family_only_when_asked_and_never_for_unlisted_families()
+ {
+    let ask = |model: &'static str, profile: Value| async move {
+        let mut server = fake(Box::leak(format!("{CHAT}{TEXT}").into_boxed_str())).await;
+        let config = json!({"preset":"nvidia","base_url":server.base,"profile":profile});
+        let provider = NativeProvider::from_json(&config.to_string()).unwrap();
+        complete(&provider, request(model, vec![])).await.unwrap();
+        body_of(&server.requests.recv().await.unwrap())
+    };
+    // Off by default: NIM's own default is left alone.
+    assert!(
+        ask("z-ai/glm-5.2", json!({}))
+            .await
+            .get("chat_template_kwargs")
+            .is_none()
+    );
+    // On: a different key per family, chosen by the model id (case-insensitive).
+    for (model, expected) in [
+        (
+            "z-ai/glm-5.2",
+            json!({"enable_thinking":true,"clear_thinking":false}),
+        ),
+        ("minimaxai/MiniMax-M3", json!({"thinking_mode":"enabled"})),
+        ("moonshotai/kimi-k2.6", json!({"thinking":true})),
+        ("deepseek-ai/deepseek-v3.2", json!({"thinking":true})),
+        ("qwen/qwen3-next", json!({"enable_thinking":true})),
+        ("qwen/QwQ-32b", json!({"enable_thinking":true})),
+    ] {
+        assert_eq!(
+            ask(model, json!({"thinking":true})).await["chat_template_kwargs"],
+            expected,
+            "{model}"
+        );
+    }
+    // A family that is not listed (Nemotron already reasons) never gets a key its template may refuse.
+    assert!(
+        ask("nvidia/nemotron-3-super", json!({"thinking":true}))
+            .await
+            .get("chat_template_kwargs")
+            .is_none()
+    );
+    // The caller's profile adds to the preset's instead of replacing it: its own rules win.
+    let custom = ask(
+        "acme/model-x",
+        json!({"thinking":true,"thinking_kwargs":[{"models":["acme"],"kwargs":{"think":"high"}}]}),
+    )
+    .await;
+    assert_eq!(custom["chat_template_kwargs"], json!({"think":"high"}));
+}
+
+#[tokio::test]
+async fn a_history_with_orphaned_tool_halves_is_cleaned_for_the_wire_and_a_complete_one_is_untouched()
+ {
+    let send = |history: Vec<hive_agent_core::Message>| async move {
+        let mut server = fake(Box::leak(format!("{CHAT}{TEXT}").into_boxed_str())).await;
+        let mut next = request("m", vec![tool("lookup", json!({"type":"object"}))]);
+        next.messages = history;
+        complete(&provider("openai", &server.base), next)
+            .await
+            .unwrap();
+        body_of(&server.requests.recv().await.unwrap())["messages"].clone()
+    };
+    let shape = |messages: &Value| -> Vec<String> {
+        messages
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| {
+                format!(
+                    "{}{}",
+                    m["role"].as_str().unwrap(),
+                    m["tool_calls"]
+                        .as_array()
+                        .map_or(String::new(), |c| format!("[{}]", c.len()))
+                )
+            })
+            .collect()
+    };
+    // Complete: unchanged.
+    let whole = send(vec![
+        message("user", Some("hi")),
+        asks("c1", None),
+        answer("c1"),
+        message("assistant", Some("ok")),
+        message("user", Some("otra")),
+    ])
+    .await;
+    assert_eq!(
+        shape(&whole),
+        ["user", "assistant[1]", "tool", "assistant", "user"]
+    );
+    // A window that starts after the call: the answer is orphaned and goes.
+    let cut = send(vec![answer("c0"), message("user", Some("sigo"))]).await;
+    assert_eq!(shape(&cut), ["user"]);
+    // A call that was never answered goes with its (empty) message; with text, the text stays.
+    let dangling = send(vec![
+        message("user", Some("hi")),
+        asks("c1", None),
+        message("user", Some("¿y?")),
+    ])
+    .await;
+    assert_eq!(shape(&dangling), ["user", "user"]);
+    let mut speaking = asks("c9", None);
+    speaking.content = Some("voy a buscar".into());
+    let kept_text = send(vec![
+        message("user", Some("hi")),
+        speaking,
+        message("user", Some("¿y?")),
+    ])
+    .await;
+    assert_eq!(shape(&kept_text), ["user", "assistant", "user"]);
+    assert_eq!(kept_text[1]["content"], "voy a buscar");
+    // Two calls, one answered: only the answered one stays, so the pair is complete.
+    let mut two = message("assistant", None);
+    two.tool_calls = vec![call("a"), call("b")];
+    let half = send(vec![message("user", Some("hi")), two, answer("b")]).await;
+    assert_eq!(shape(&half), ["user", "assistant[1]", "tool"]);
+    assert_eq!(half[1]["tool_calls"][0]["id"], "b");
+    // An answer repeated for the same call is sent once.
+    let twice = send(vec![
+        message("user", Some("hi")),
+        asks("c1", None),
+        answer("c1"),
+        answer("c1"),
+    ])
+    .await;
+    assert_eq!(shape(&twice), ["user", "assistant[1]", "tool"]);
+    // An answer that comes before its call is an orphan, not a match.
+    let early = send(vec![
+        answer("c1"),
+        message("user", Some("hi")),
+        asks("c1", None),
+        answer("c1"),
+    ])
+    .await;
+    assert_eq!(shape(&early), ["user", "assistant[1]", "tool"]);
+}
+
+#[tokio::test]
+async fn a_tool_call_written_as_text_becomes_a_real_one_only_when_the_profile_asks_and_the_tool_exists()
+ {
+    let content_reply = |text: &str| -> &'static str {
+        reply(
+            json!({"choices":[{"finish_reason":"stop","message":{"content":text}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}),
+        )
+    };
+    let run = |preset: &'static str, text: &'static str| async move {
+        let server = fake(content_reply(text)).await;
+        complete(
+            &provider(preset, &server.base),
+            request("qwen3", vec![tool("lookup", json!({"type":"object"}))]),
+        )
+        .await
+        .unwrap()
+    };
+    // Ollama's profile reads them.
+    let tagged = run("ollama", "Voy a buscar.\n<tool_call>\n{\"name\": \"lookup\", \"arguments\": {\"q\": \"rust\"}}\n</tool_call>").await;
+    assert_eq!(tagged.tool_calls.len(), 1);
+    assert_eq!(
+        (
+            tagged.tool_calls[0].name.as_str(),
+            tagged.tool_calls[0].arguments.clone(),
+            tagged.tool_calls[0].id.as_str()
+        ),
+        ("lookup", json!({"q":"rust"}), "text-call-0")
+    );
+    assert_eq!(
+        tagged.content.as_deref(),
+        Some("Voy a buscar."),
+        "the call is taken out of the text"
+    );
+    // Several, with the arguments as a string; and a reply that is only the JSON, fenced.
+    let two = run("ollama", "<tool_call>{\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":1}\"}</tool_call><tool_call>{\"name\":\"lookup\",\"parameters\":{\"q\":2}}</tool_call>").await;
+    assert_eq!(
+        two.tool_calls
+            .iter()
+            .map(|c| c.arguments["q"].clone())
+            .collect::<Vec<_>>(),
+        [json!(1), json!(2)]
+    );
+    assert_eq!(two.content, None);
+    let fenced = run(
+        "ollama",
+        "```json\n{\"name\":\"lookup\",\"arguments\":{\"q\":\"x\"}}\n```",
+    )
+    .await;
+    assert_eq!((fenced.tool_calls.len(), fenced.content), (1, None));
+    let listed = run(
+        "ollama",
+        "[{\"name\":\"lookup\",\"arguments\":{}},{\"tool\":\"lookup\",\"args\":{\"z\":1}}]",
+    )
+    .await;
+    assert_eq!(listed.tool_calls.len(), 2);
+    // A tool that does not exist, bad JSON, arguments that are not an object, or JSON that is not a call: text.
+    for text in [
+        "<tool_call>{\"name\":\"rm_rf\",\"arguments\":{}}</tool_call>",
+        "<tool_call>{not json}</tool_call>",
+        "<tool_call>{\"name\":\"lookup\",\"arguments\":[1,2]}</tool_call>",
+        "<tool_call>{\"name\":\"lookup\",\"arguments\":{}}",
+        "{\"name\":\"Ana\",\"age\":3}",
+        "[{\"name\":\"lookup\",\"arguments\":{}},{\"name\":\"other\",\"arguments\":{}}]",
+        "El formato es <tool_call> seguido de JSON.",
+    ] {
+        let got = run("ollama", Box::leak(text.to_owned().into_boxed_str())).await;
+        assert!(got.tool_calls.is_empty(), "{text}");
+        assert!(got.content.is_some(), "{text}: stays as text");
+    }
+    // Not asked for (every other provider): a model quoting a call never runs it.
+    let quoted = run(
+        "openai",
+        "<tool_call>{\"name\":\"lookup\",\"arguments\":{}}</tool_call>",
+    )
+    .await;
+    assert!(quoted.tool_calls.is_empty() && quoted.content.is_some());
+    // A real tool call is never touched.
+    let server = fake(tool_reply("lookup")).await;
+    let real = complete(
+        &provider("ollama", &server.base),
+        request("qwen3", vec![tool("lookup", json!({"type":"object"}))]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (real.tool_calls.len(), real.tool_calls[0].id.as_str()),
+        (1, "c1")
+    );
+}

@@ -37,7 +37,7 @@ rules:
   - "Formulas are never executed: office_read_xlsx returns cached values"
   - "Presentations are styled: choose a theme preset (modern, light, dark, corporate, warm) and keep slides short, using `points` for bullets"
   - "PDFs are styled too: use `blocks`, a theme and a header/footer with page numbers (see pdf_report_writer); `content` is for plain text only"
-  - "PDF reading uses real glyph widths; encrypted files, fonts without a Unicode mapping and scanned images are reported in warnings, not guessed, and there is no OCR"
+  - "PDF reading uses real glyph widths; encrypted PDFs open with the empty password or the user `password` you pass to office_read_pdf (a wrong one is an error), fonts without a Unicode mapping and scanned images are reported in warnings, not guessed, and there is no OCR"
   - "Never use Chromium, Chrome, Playwright or Puppeteer to convert documents. The SDK browser is Obscura and the Office tools need no browser"
   - "Do not overwrite a file the user did not ask to replace"
 output_format:

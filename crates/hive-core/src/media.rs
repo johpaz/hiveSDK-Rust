@@ -197,7 +197,12 @@ pub(crate) fn decode_base64(data: &str) -> Option<Vec<u8>> {
     if !valid_base64(data) {
         return None;
     }
-    let value = |byte: u8| ALPHABET.iter().position(|candidate| *candidate == byte).map(|at| at as u32);
+    let value = |byte: u8| {
+        ALPHABET
+            .iter()
+            .position(|candidate| *candidate == byte)
+            .map(|at| at as u32)
+    };
     let mut out = Vec::with_capacity(data.len() / 4 * 3);
     for chunk in data.as_bytes().chunks(4) {
         let padding = chunk.iter().filter(|byte| **byte == b'=').count();
@@ -215,7 +220,9 @@ pub(crate) fn decode_base64(data: &str) -> Option<Vec<u8>> {
 pub(crate) fn encode_base64(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let acc = chunk.iter().enumerate().fold(0u32, |acc, (at, byte)| acc | (*byte as u32) << (16 - 8 * at));
+        let acc = chunk.iter().enumerate().fold(0u32, |acc, (at, byte)| {
+            acc | (*byte as u32) << (16 - 8 * at)
+        });
         for at in 0..4 {
             if at <= chunk.len() {
                 out.push(ALPHABET[(acc >> (18 - 6 * at) & 63) as usize] as char);

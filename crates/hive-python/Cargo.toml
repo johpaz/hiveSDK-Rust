@@ -13,7 +13,7 @@ test = false
 doctest = false
 
 [dependencies]
-hive-agent-core = { workspace = true, features = ["services", "browser", "harness", "scheduler", "tools"] }
+hive-agent-core = { workspace = true, features = ["services", "browser", "harness", "scheduler", "tools", "images", "computer-use"] }
 pyo3 = { version = "0.29", features = ["abi3-py310", "extension-module"] }
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }

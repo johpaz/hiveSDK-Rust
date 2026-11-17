@@ -91,3 +91,22 @@ test('web tools fetch and search, and expose executable Agent tools', async () =
     assert.equal((await search.execute({ query: 'hive' })).results.length, 1);
   } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test('computer tools are off unless configured, input is a separate grant and the host controls reach the engine', async () => {
+  const dir = scratch();
+  try {
+    const none = new NativeTools({ root: dir });
+    assert.deepEqual((await none.definitions()).filter(tool => tool.name.startsWith('computer_')), []);
+    const screenshots = new NativeTools({ root: dir, computer: { backend: 'x11', display: ':99' } });
+    assert.deepEqual((await screenshots.definitions()).filter(tool => tool.name.startsWith('computer_')).map(tool => tool.name), ['computer_screenshot', 'computer_wait']);
+    const full = new NativeTools({ root: dir, computer: { backend: 'x11', display: ':99', allow_input: true, max_actions: 2 } });
+    assert.equal((await full.definitions()).filter(tool => tool.name.startsWith('computer_')).length, 8);
+    assert.deepEqual(await full.computerStatus(), { stopped: false, actions: 0 });
+    assert.deepEqual(await full.computerStop(), { stopped: true, actions: 0 });
+    await assert.rejects(full.execute('computer_screenshot', {}), /stopped|not granted|disabled/);
+    assert.deepEqual(await full.computerResume(), { stopped: false, actions: 0 });
+    assert.deepEqual(await full.computerReset(), { stopped: false, actions: 0 });
+    assert.throws(() => new NativeTools({ root: dir, computer: { allow_screenshot: false } }), /allow_screenshot or allow_input/);
+    assert.throws(() => new NativeTools({ root: dir, computer: { surprise: true } }), /unknown field/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

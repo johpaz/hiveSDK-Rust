@@ -20,12 +20,67 @@ pub enum TriggerSchedule {
         #[serde(default)]
         anchor_unix_ms: Option<u64>,
     },
+    /// A calendar expression (five or six fields, IANA time zone), computed by the shared
+    /// scheduler calendar. Needs the `scheduler` feature, which the npm and Python bindings enable.
+    Cron {
+        expression: String,
+        timezone: String,
+        #[serde(default)]
+        dom_and_dow: bool,
+    },
 }
+
+/// Most missed occurrences a claim counts exactly. Beyond it the count is reported as a lower
+/// bound (`skipped_is_lower_bound`), so a long outage never costs a long computation under the
+/// ledger lock; the claim is still the single latest occurrence, never a burst.
+const MAX_COUNTED_SKIPS: u64 = 100;
+
+#[cfg(feature = "scheduler")]
+fn cron_next_after(
+    expression: &str,
+    timezone: &str,
+    dom_and_dow: bool,
+    after: u64,
+) -> Result<Option<u64>> {
+    crate::scheduler::Schedule::Cron {
+        expression: expression.into(),
+        timezone: timezone.into(),
+        dom_and_dow,
+    }
+    .next_after(after)
+}
+#[cfg(not(feature = "scheduler"))]
+fn cron_next_after(_: &str, _: &str, _: bool, _: u64) -> Result<Option<u64>> {
+    Err(Error::Input(
+        "cron triggers need the `scheduler` feature".into(),
+    ))
+}
+fn cron_next_required(
+    expression: &str,
+    timezone: &str,
+    dom_and_dow: bool,
+    after: u64,
+) -> Result<u64> {
+    cron_next_after(expression, timezone, dom_and_dow, after)?
+        .filter(|next| *next <= MAX_TIME)
+        .ok_or_else(|| {
+            Error::Input("the cron expression has no valid date in the next eight years".into())
+        })
+}
+
 impl TriggerSchedule {
     fn validate(&self) -> Result<()> {
         let valid = match self {
             Self::Event => true,
             Self::At { unix_ms } => *unix_ms <= MAX_TIME,
+            Self::Cron {
+                expression,
+                timezone,
+                dom_and_dow,
+            } => {
+                // Rejects a bad expression, an unknown zone and a date that never comes.
+                return cron_next_required(expression, timezone, *dom_and_dow, 0).map(|_| ());
+            }
             Self::Interval {
                 every_ms,
                 anchor_unix_ms,
@@ -138,6 +193,11 @@ impl TriggerEntry {
                     return Err(Error::Storage("event trigger has calendar state".into()));
                 }
             }
+            TriggerSchedule::Cron { .. } => {
+                if self.anchor_unix_ms.is_some() || self.next_due_unix_ms.is_none() {
+                    return Err(Error::Storage("invalid cron trigger state".into()));
+                }
+            }
             TriggerSchedule::At { unix_ms } => {
                 if self.anchor_unix_ms.is_some()
                     || self.next_due_unix_ms.is_some_and(|next| next != *unix_ms)
@@ -194,6 +254,19 @@ impl Objective {
         let (anchor, next) = match &schedule {
             TriggerSchedule::Event => (None, None),
             TriggerSchedule::At { unix_ms } => (None, Some(*unix_ms)),
+            TriggerSchedule::Cron {
+                expression,
+                timezone,
+                dom_and_dow,
+            } => (
+                None,
+                Some(cron_next_required(
+                    expression,
+                    timezone,
+                    *dom_and_dow,
+                    now_ms()?,
+                )?),
+            ),
             TriggerSchedule::Interval {
                 every_ms,
                 anchor_unix_ms,
@@ -320,8 +393,10 @@ impl Objective {
             let Some(due) = entry.next_due_unix_ms.filter(|due| *due <= now) else {
                 return Ok(None);
             };
-            let (scheduled, skipped, next) = match entry.schedule {
+            let mut lower_bound = false;
+            let (scheduled, skipped, next) = match &entry.schedule {
                 TriggerSchedule::Interval { every_ms, .. } => {
+                    let every_ms = *every_ms;
                     let skipped = (now - due) / every_ms;
                     let scheduled = due + skipped * every_ms;
                     let next = scheduled
@@ -333,11 +408,56 @@ impl Objective {
                     (scheduled, skipped, Some(next))
                 }
                 TriggerSchedule::At { .. } => (due, 0, None),
+                TriggerSchedule::Cron {
+                    expression,
+                    timezone,
+                    dom_and_dow,
+                } => {
+                    let step =
+                        |after: u64| cron_next_required(expression, timezone, *dom_and_dow, after);
+                    // The latest occurrence that is due, found without visiting every one: look back
+                    // over a window that doubles until it holds an occurrence, then walk forward.
+                    let mut scheduled = due;
+                    let mut width = 1_000u64;
+                    loop {
+                        let from = now.saturating_sub(width);
+                        if from <= scheduled {
+                            break;
+                        }
+                        match cron_next_after(expression, timezone, *dom_and_dow, from)? {
+                            Some(found) if found <= now => {
+                                scheduled = found;
+                                break;
+                            }
+                            _ => width = width.saturating_mul(2),
+                        }
+                    }
+                    let next = loop {
+                        let candidate = step(scheduled)?;
+                        if candidate > now {
+                            break candidate;
+                        }
+                        scheduled = candidate;
+                    };
+                    // How many earlier occurrences were missed: exact up to a small bound, then
+                    // "at least that many", so a long outage never costs a long computation.
+                    let (mut counted, mut cursor) = (0u64, due);
+                    while cursor < scheduled && counted < MAX_COUNTED_SKIPS {
+                        cursor = step(cursor)?;
+                        counted += 1;
+                    }
+                    lower_bound = cursor < scheduled;
+                    (scheduled, counted, Some(next))
+                }
                 TriggerSchedule::Event => unreachable!(),
             };
             (
                 scheduled.to_string(),
-                json!({"scheduled_for_unix_ms":scheduled,"observed_unix_ms":now,"skipped_occurrences":skipped}),
+                if lower_bound {
+                    json!({"scheduled_for_unix_ms":scheduled,"observed_unix_ms":now,"skipped_occurrences":skipped,"skipped_is_lower_bound":true})
+                } else {
+                    json!({"scheduled_for_unix_ms":scheduled,"observed_unix_ms":now,"skipped_occurrences":skipped})
+                },
                 next,
             )
         };

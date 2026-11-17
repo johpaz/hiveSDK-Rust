@@ -83,3 +83,50 @@ test('custom uncertain tool failures never become a new paid model continuation'
     provider: { complete() { requests++; return call({ a: 2, b: 3 }); } } });
   await assert.rejects(agent.run('Add'), ToolOperationUncertain); assert.equal(requests, 1);
 });
+
+test('a server that changes its tools is noticed and refreshTools adopts the new list', async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'hive-mcp-refresh-')); const client = await connect('mutating', path.join(directory, 'calls'));
+  try {
+    assert.deepEqual(client.catalog.map(tool => tool.name), ['add', 'echo']); assert.equal(client.toolsChanged, false);
+    assert.equal((await client.call('echo', { value: 'mutate' })).structuredContent.value, 'mutate');
+    assert.equal(client.toolsChanged, true, 'announced with the reply that carried it');
+    assert.deepEqual(client.catalog.map(tool => tool.name), ['add', 'echo'], 'unchanged until refreshed');
+    assert.deepEqual(await client.refreshTools(), { added: ['extra'], removed: [], changed: ['add'] });
+    assert.equal(client.toolsChanged, false);
+    assert.deepEqual(client.catalog.map(tool => tool.name), ['add', 'echo', 'extra']);
+    assert.ok(client.tools().some(tool => tool.name === 'mcp_extra'), 'tools() offers the new one');
+    assert.equal((await client.call('extra', { value: 1 })).structuredContent.value, 1);
+  } finally { await client.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+// A minimal MCP server over the classic HTTP+SSE transport, as n8n's MCP Server Trigger speaks it.
+async function sseServer() {
+  const { createServer } = await import('node:http'); let stream; const seen = [];
+  const server = createServer((request, response) => {
+    if (request.method === 'GET') { response.writeHead(200, { 'content-type': 'text/event-stream' }); stream = response; response.write(': hi\n\nevent: endpoint\ndata: /messages?sessionId=s1\n\n'); return; }
+    let body = ''; request.on('data', chunk => body += chunk); request.on('end', () => {
+      response.writeHead(202); response.end('Accepted'); const message = JSON.parse(body); seen.push(message.method); if (message.id === undefined) return;
+      const result = message.method === 'initialize' ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'n8n-like', version: '1' } }
+        : message.method === 'tools/list' ? { tools: [{ name: 'echo', description: 'Echo', inputSchema: { type: 'object', properties: { value: {} }, required: ['value'] } }] }
+        : { content: [{ type: 'text', text: JSON.stringify(message.params.arguments.value) }], structuredContent: { value: message.params.arguments.value } };
+      stream.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: message.id, result })}\n\n`);
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${server.address().port}/mcp/x`, seen, close: () => { stream?.end(); server.closeAllConnections(); server.close(); } };
+}
+
+test('the classic HTTP+SSE transport connects, lists and calls, from a client and from a manager', async () => {
+  const server = await sseServer(); let client; let manager;
+  try {
+    client = await McpClient.connect({ transport: 'sse', url: server.url });
+    assert.equal(client.info.protocolVersion, '2025-03-26'); assert.deepEqual(client.catalog.map(tool => tool.name), ['echo']);
+    assert.deepEqual((await client.call('echo', { value: { n: 2 } })).structuredContent, { value: { n: 2 } });
+    assert.deepEqual(server.seen, ['initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
+    await assert.rejects(McpClient.connect({ transport: 'sse', url: server.url, command: 'x' }), /Process options/);
+    const { McpManager } = await import('../index.mjs'); manager = new McpManager();
+    const report = await manager.apply({ calendar: { transport: 'sse', url: server.url } });
+    assert.deepEqual(report.added, ['calendar']); assert.equal(manager.status[0].state, 'connected');
+    assert.deepEqual(manager.catalog.map(tool => tool.name), ['calendar__echo']);
+  } finally { await client?.close(); await manager?.close?.(); server.close(); }
+});

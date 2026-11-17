@@ -13,11 +13,14 @@ pub mod handles;
 #[cfg(feature = "harness")]
 pub mod harness;
 pub mod image;
+#[cfg(feature = "images")]
+pub mod image_transform;
 pub mod mcp;
 pub mod media;
 pub mod memory;
 pub mod objective;
 pub mod oracle;
+pub mod policy;
 pub mod provider;
 #[cfg(feature = "scheduler")]
 pub mod scheduler;
@@ -108,7 +111,15 @@ pub struct ToolCall {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "provider", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProviderState {
-    Gemini { version: u32, parts: Vec<Value> },
+    Gemini {
+        version: u32,
+        parts: Vec<Value>,
+    },
+    /// The `reasoning_content` of an OpenAI-compatible reply (DeepSeek, Kimi K2 thinking, NVIDIA).
+    /// Providers that need it back with the tool calls it came with get it; the rest never see it.
+    Reasoning {
+        content: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,6 +281,15 @@ pub struct LoopPolicy {
     pub input_token_budget: Option<InputTokenBudget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub structured_output: Option<StructuredOutput>,
+    /// Tools whose result may carry a picture (`mime_type: image/*` and base64 `data`, such as
+    /// `computer_screenshot`). The model is shown that picture as an image after the tool
+    /// results, not as base64 text. Others cannot do this: a result is text, whoever wrote it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_tools: Vec<String>,
+    /// How many of those pictures stay in the context (default 2); older ones are replaced by a
+    /// short note, so a long session does not resend every screenshot on every turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tool_images: Option<u32>,
 }
 impl Default for LoopPolicy {
     fn default() -> Self {
@@ -284,8 +304,48 @@ impl Default for LoopPolicy {
             context_overflow: ContextOverflow::Stop,
             input_token_budget: None,
             structured_output: None,
+            image_tools: vec![],
+            max_tool_images: None,
         }
     }
+}
+
+/// What the model is told next to a picture a tool returned.
+const TOOL_IMAGE_NOTE: &str = "Image returned by the tool `";
+const MAX_IMAGE_TOOLS: usize = 32;
+
+/// Splits a picture out of a tool result: the result keeps its other fields and says the picture
+/// was attached; the picture comes back as an attachment if it is a valid image.
+fn take_image(result: &mut Value, attachable: bool) -> Option<Attachment> {
+    let object = result.as_object_mut()?;
+    let media_type = object.get("mime_type")?.as_str()?.to_owned();
+    if !media_type.starts_with("image/") || !object.get("data")?.is_string() {
+        return None;
+    }
+    let data = object.remove("data")?;
+    if !attachable {
+        object.insert(
+            "image_omitted".into(),
+            json!("the input token budget has no attachment_tokens, so the picture was not shown"),
+        );
+        return None;
+    }
+    let attachment = Attachment {
+        kind: AttachmentKind::Image,
+        media_type,
+        data: data.as_str().map(str::to_owned),
+        url: None,
+        name: None,
+    };
+    if attachment.validate().is_err() {
+        object.insert(
+            "image_omitted".into(),
+            json!("the picture was not a valid image"),
+        );
+        return None;
+    }
+    object.insert("image_attached".into(), json!(true));
+    Some(attachment)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -333,6 +393,9 @@ pub struct Engine {
     deadline_unix_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     objective_id: Option<String>,
+    /// Pictures from tools of the current batch, shown once every result of it is in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    held_images: Vec<(String, Attachment)>,
 }
 
 impl Engine {
@@ -364,9 +427,21 @@ impl Engine {
             || policy.max_total_output_tokens == Some(0)
             || policy.max_run_ms == Some(0)
             || policy.max_context_bytes == Some(0)
+            || policy.max_tool_images == Some(0)
+            || policy.max_tool_images.is_some_and(|n| n > 16)
         {
             return Err(Error::Input(
                 "loop limits must be positive or null where supported".into(),
+            ));
+        }
+        if policy.image_tools.len() > MAX_IMAGE_TOOLS
+            || policy
+                .image_tools
+                .iter()
+                .any(|name| !tools.iter().any(|tool| tool.name == *name))
+        {
+            return Err(Error::Input(
+                "image_tools must name tools of this engine (at most 32)".into(),
             ));
         }
         if policy.max_context_bytes.is_none()
@@ -421,6 +496,7 @@ impl Engine {
             policy,
             stats: RunStats::default(),
             observations: vec![],
+            held_images: vec![],
             deadline_unix_ms: None,
             objective_id: None,
         })
@@ -620,8 +696,19 @@ impl Engine {
         if !matches!(self.action, Action::Model { .. }) {
             return Err(Error::State("no model response is expected".into()));
         }
-        if let Some(state) = &reply.provider_state {
-            provider::gemini::validate_state(state, &reply.content, &reply.tool_calls)?;
+        match &reply.provider_state {
+            // Gemini's replayable parts have to agree with the text and the calls they came with.
+            Some(state @ ProviderState::Gemini { .. }) => {
+                provider::gemini::validate_state(state, &reply.content, &reply.tool_calls)?;
+            }
+            // Reasoning is only a note kept with the reply; it is never empty and never huge.
+            Some(ProviderState::Reasoning { content })
+                if content.is_empty() || content.len() > 1_048_576 =>
+            {
+                return Err(Error::Input("invalid reasoning state".into()));
+            }
+            Some(ProviderState::Reasoning { .. }) => {}
+            None => {}
         }
         let reservation = match &self.action {
             Action::Model { request } => request.max_output_tokens,
@@ -769,8 +856,43 @@ impl Engine {
         self.finish_tool(&id, result, true)
     }
 
+    /// Keeps the newest `max_tool_images` pictures and replaces the older ones with a note.
+    fn prune_tool_images(&mut self) {
+        let keep = self.policy.max_tool_images.unwrap_or(2) as usize;
+        let shown: Vec<usize> = self
+            .messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| {
+                m.role == "user"
+                    && !m.attachments.is_empty()
+                    && m.content
+                        .as_deref()
+                        .is_some_and(|c| c.starts_with(TOOL_IMAGE_NOTE))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        for index in shown.iter().take(shown.len().saturating_sub(keep)) {
+            let message = &mut self.messages[*index];
+            message.attachments.clear();
+            message.content =
+                Some("An earlier image from a tool was removed from the context.".into());
+        }
+    }
+
     fn finish_tool(&mut self, id: &str, result: Value, rejected: bool) -> Result<()> {
         let call = self.pending[0].clone();
+        let mut result = result;
+        let image = if !rejected && self.policy.image_tools.contains(&call.name) {
+            let attachable = self
+                .policy
+                .input_token_budget
+                .as_ref()
+                .is_none_or(|budget| budget.attachment_tokens.is_some());
+            take_image(&mut result, attachable)
+        } else {
+            None
+        };
         if rejected {
             self.stats.tool_rejections += 1;
         } else {
@@ -792,6 +914,18 @@ impl Engine {
             tool_call_id: Some(id.into()),
         });
         self.pending.remove(0);
+        if let Some(image) = image {
+            self.held_images.push((call.name.clone(), image));
+        }
+        // Providers need every result of a batch before anything else, so the pictures come last.
+        if self.pending.is_empty() && !self.held_images.is_empty() {
+            for (tool, image) in std::mem::take(&mut self.held_images) {
+                let mut message = Message::text("user", format!("{TOOL_IMAGE_NOTE}{tool}`."));
+                message.attachments = vec![image];
+                self.messages.push(message);
+            }
+            self.prune_tool_images();
+        }
         if self.deadline_expired()? {
             self.stop(StopReason::DeadlineExceeded);
             Ok(())

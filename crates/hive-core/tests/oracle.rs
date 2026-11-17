@@ -551,3 +551,131 @@ async fn a_cooldown_skips_the_call_without_reserving_anything() {
         "no reservation while cooling down"
     );
 }
+
+mod review_tests {
+    use hive_agent_core::oracle::{
+        Answer, Decision, OracleReply, Question,
+        review::{ReviewConfig, ReviewInput, Verdict, correction_prompt, judge, questions},
+    };
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn decision(next: Option<(&str, f64)>, supported: Option<f64>) -> OracleReply {
+        let mut answers = BTreeMap::new();
+        if let Some((choice, confidence)) = next {
+            answers.insert(
+                "next".to_owned(),
+                Answer::Choice {
+                    choice: choice.into(),
+                    confidence,
+                    probabilities: BTreeMap::new(),
+                },
+            );
+        }
+        if let Some(noul) = supported {
+            answers.insert("supported".to_owned(), Answer::Noul { noul });
+        }
+        OracleReply::Decision(Decision {
+            answers,
+            charge: None,
+            cost_usd: None,
+            latency_ms: 1,
+        })
+    }
+
+    #[test]
+    fn the_review_asks_two_closed_questions_about_a_clipped_summary() {
+        let input = ReviewInput {
+            request: "r".repeat(5000),
+            answer: "a".repeat(9000),
+            evidence: (0..30)
+                .map(|n| json!({"tool":format!("t{n}"),"ok":true,"excerpt":"x".repeat(1000)}))
+                .collect(),
+        };
+        let (state, questions) = questions(&input);
+        assert_eq!(questions.keys().collect::<Vec<_>>(), ["next", "supported"]);
+        match &questions["next"] {
+            Question::Choice { criteria, .. } => {
+                assert_eq!(criteria.keys().collect::<Vec<_>>(), ["continue", "finish"])
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(questions["supported"], Question::Noul { .. }));
+        assert!(state["request"].as_str().unwrap().chars().count() <= 2001);
+        assert!(state["answer"].as_str().unwrap().chars().count() <= 4001);
+        let evidence = state["tool_results"].as_array().unwrap();
+        assert_eq!(evidence.len(), 12, "only the newest results");
+        assert_eq!(evidence[11]["tool"], "t29");
+        assert!(evidence[0]["excerpt"].as_str().unwrap().chars().count() <= 301);
+    }
+
+    #[test]
+    fn only_a_confident_continue_or_weak_support_revises_and_everything_else_accepts() {
+        let config = ReviewConfig::default();
+        let revise = |reply: OracleReply| matches!(judge(&reply, &config), Verdict::Revise { .. });
+        assert!(!revise(decision(Some(("finish", 0.95)), Some(0.9))));
+        assert!(
+            revise(decision(Some(("continue", 0.8)), Some(0.9))),
+            "a sure continue"
+        );
+        assert!(
+            !revise(decision(Some(("continue", 0.55)), Some(0.9))),
+            "an unsure continue is not enough"
+        );
+        assert!(
+            revise(decision(Some(("finish", 0.9)), Some(0.2))),
+            "weakly supported"
+        );
+        assert!(
+            !revise(decision(Some(("finish", 0.9)), Some(0.5))),
+            "at the threshold is fine"
+        );
+        let Verdict::Revise { reason } =
+            judge(&decision(Some(("continue", 0.9)), Some(0.1)), &config)
+        else {
+            panic!()
+        };
+        assert!(
+            reason.contains("incomplete") && reason.contains("backed"),
+            "both reasons are given: {reason}"
+        );
+        // No decision (the oracle was down, cooling down or answered badly): never blocks.
+        assert_eq!(
+            judge(
+                &OracleReply::Fallback {
+                    reason: "x".into(),
+                    sent: true
+                },
+                &config
+            ),
+            Verdict::Accept
+        );
+        assert_eq!(judge(&decision(None, None), &config), Verdict::Accept);
+        let strict = ReviewConfig {
+            min_confidence: 0.5,
+            support_threshold: 0.95,
+            ..Default::default()
+        };
+        assert!(matches!(
+            judge(&decision(Some(("finish", 0.9)), Some(0.9)), &strict),
+            Verdict::Revise { .. }
+        ));
+        assert!(correction_prompt("because").contains("because"));
+    }
+
+    #[test]
+    fn the_review_settings_are_bounded() {
+        assert!(ReviewConfig::default().validate().is_ok());
+        for bad in [
+            json!({"max_corrections":0}),
+            json!({"max_corrections":4}),
+            json!({"min_confidence":0.2}),
+            json!({"min_confidence":1.5}),
+            json!({"support_threshold":-0.1}),
+        ] {
+            let config: ReviewConfig = serde_json::from_value(bad.clone()).unwrap();
+            assert!(config.validate().is_err(), "{bad}");
+        }
+        assert!(serde_json::from_value::<ReviewConfig>(json!({"surprise":1})).is_err());
+    }
+}

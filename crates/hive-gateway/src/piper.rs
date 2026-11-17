@@ -306,7 +306,7 @@ pub(crate) fn route(
                 let cfg = config_patch(settings(app)?, &body, &root)?;
                 let _guard = app
                     .activity_lock
-                    .lock()
+                    .write()
                     .map_err(|_| "Configuración bloqueada")?;
                 let old = app.db.col_get("config", "piper_local")?;
                 app.db.col_put(

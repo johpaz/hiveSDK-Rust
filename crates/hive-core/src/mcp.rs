@@ -18,6 +18,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 pub mod http;
+mod manager;
+pub mod sse;
+pub use manager::McpManager;
 
 fn version() -> String {
     "2025-11-25".into()
@@ -81,6 +84,8 @@ struct StdioSession {
     id: u64,
     max_bytes: usize,
     max_messages: usize,
+    /// Set when the server said `notifications/tools/list_changed` (seen during an exchange).
+    changed: Arc<AtomicBool>,
 }
 fn error(message: &str) -> Error {
     Error::Mcp(message.into())
@@ -150,6 +155,9 @@ impl StdioSession {
                 {
                     return Err(error("invalid server request"));
                 }
+                if method == "notifications/tools/list_changed" {
+                    self.changed.store(true, Ordering::SeqCst);
+                }
                 if let Some(id) = value.get("id") {
                     if !id.is_string() && !id.is_number() {
                         return Err(error("invalid server request ID"));
@@ -194,30 +202,124 @@ impl StdioSession {
 enum Session {
     Stdio(StdioSession),
     Http(http::HttpSession),
+    Sse(sse::SseSession),
 }
 impl Session {
     async fn write(&mut self, value: &Value) -> Result<()> {
         match self {
             Self::Stdio(session) => session.write(value).await,
             Self::Http(session) => session.write(value).await,
+            Self::Sse(session) => session.write(value).await,
         }
     }
     async fn rpc(&mut self, method: &str, params: Value) -> Result<Value> {
         match self {
             Self::Stdio(session) => session.rpc(method, params).await,
             Self::Http(session) => session.rpc(method, params).await,
+            Self::Sse(session) => session.rpc(method, params).await,
         }
     }
     async fn shutdown(&mut self) {
         match self {
             Self::Stdio(session) => session.shutdown().await,
             Self::Http(session) => session.shutdown().await,
+            Self::Sse(session) => session.shutdown().await,
+        }
+    }
+    fn changed_flag(&self) -> Arc<AtomicBool> {
+        match self {
+            Self::Stdio(session) => session.changed.clone(),
+            Self::Http(session) => session.changed.clone(),
+            Self::Sse(session) => session.changed.clone(),
         }
     }
 }
+struct Limits {
+    max_pages: usize,
+    max_tools: usize,
+    max_bytes: usize,
+}
+
+/// Every page of `tools/list`, validated and bounded.
+async fn list_tools(session: &mut Session, limits: &Limits) -> Result<Vec<McpTool>> {
+    let mut catalog = vec![];
+    let mut names = HashSet::new();
+    let mut cursors = HashSet::new();
+    let mut cursor = None::<String>;
+    let mut size = 0usize;
+    for _ in 0..limits.max_pages {
+        let params = cursor
+            .as_ref()
+            .map_or_else(|| json!({}), |cursor| json!({"cursor":cursor}));
+        let result = session.rpc("tools/list", params).await?;
+        for raw in result["tools"]
+            .as_array()
+            .ok_or_else(|| error("tools/list has no tool array"))?
+        {
+            size = size.saturating_add(serde_json::to_vec(raw)?.len());
+            if size > limits.max_bytes || catalog.len() >= limits.max_tools {
+                return Err(error("tool catalog exceeds configured limits"));
+            }
+            let name = raw["name"]
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| error("invalid tool name"))?
+                .to_owned();
+            if !names.insert(name.clone()) || raw["inputSchema"]["type"] != "object" {
+                return Err(error("duplicate tool or non-object inputSchema"));
+            }
+            let description = match raw.get("description") {
+                None => String::new(),
+                Some(value) => value
+                    .as_str()
+                    .ok_or_else(|| error("invalid tool description"))?
+                    .to_owned(),
+            };
+            let input_schema = raw["inputSchema"].clone();
+            let input = crate::validation::compile(&input_schema)?;
+            let output_schema = raw.get("outputSchema").cloned();
+            if output_schema
+                .as_ref()
+                .is_some_and(|schema| schema["type"] != "object")
+            {
+                return Err(error("outputSchema must describe an object"));
+            }
+            let output = output_schema
+                .as_ref()
+                .map(crate::validation::compile)
+                .transpose()?;
+            catalog.push(McpTool {
+                name,
+                description,
+                input_schema,
+                output_schema,
+                annotations: raw.get("annotations").cloned(),
+                input,
+                output,
+            });
+        }
+        cursor = match result.get("nextCursor").filter(|v| !v.is_null()) {
+            None => return Ok(catalog),
+            Some(value) => Some(
+                value
+                    .as_str()
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| error("invalid pagination cursor"))?
+                    .to_owned(),
+            ),
+        };
+        if !cursors.insert(cursor.clone().unwrap()) {
+            return Err(error("repeated pagination cursor"));
+        }
+    }
+    Err(error("too many catalog pages"))
+}
 pub struct McpClient {
     session: Mutex<Session>,
-    catalog: Vec<McpTool>,
+    /// The tools as last listed; replaced whole by [`McpClient::refresh_tools`].
+    catalog: std::sync::RwLock<Arc<Vec<McpTool>>>,
+    list_changed: Arc<AtomicBool>,
+    limits: Limits,
     info: Value,
     timeout_ms: u64,
     max_bytes: usize,
@@ -259,6 +361,7 @@ impl McpClient {
             None if transport.is_none() => Self::connect(serde_json::from_value(config)?).await,
             Some("stdio") => Self::connect(serde_json::from_value(config)?).await,
             Some("http") => Self::connect_http(serde_json::from_value(config)?).await,
+            Some("sse") => Self::connect_sse(serde_json::from_value(config)?).await,
             _ => Err(error("unsupported MCP transport")),
         }
     }
@@ -275,7 +378,7 @@ impl McpClient {
             || !(1..=4096).contains(&config.max_messages)
             || !matches!(
                 config.protocol_version.as_str(),
-                "2025-06-18" | "2025-11-25"
+                "2024-11-05" | "2025-03-26" | "2025-06-18" | "2025-11-25"
             )
         {
             return Err(error(
@@ -331,6 +434,7 @@ impl McpClient {
             id: 0,
             max_bytes: config.max_message_bytes,
             max_messages: config.max_messages,
+            changed: Arc::new(AtomicBool::new(false)),
         });
         Self::setup(session, config).await
     }
@@ -351,10 +455,38 @@ impl McpClient {
         let session = Session::Http(http::HttpSession::new(config)?);
         Self::setup(session, common).await
     }
+    /// The classic HTTP+SSE transport (a long-lived event stream plus `POST`s). The server may answer
+    /// with an older revision than the one asked for, which is fine as long as it is one we speak.
+    pub async fn connect_sse(config: sse::SseConfig) -> Result<Arc<Self>> {
+        let common = StdioConfig {
+            command: "sse".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+            cwd: None,
+            protocol_version: config.protocol_version.clone(),
+            timeout_ms: config.timeout_ms,
+            max_message_bytes: config.max_message_bytes,
+            max_tools: config.max_tools,
+            max_pages: config.max_pages,
+            max_messages: config.max_messages,
+        };
+        Self::validate_config(&common)?;
+        let session = Session::Sse(sse::SseSession::connect(config).await?);
+        Self::setup(session, common).await
+    }
     async fn setup(mut session: Session, config: StdioConfig) -> Result<Arc<Self>> {
+        let negotiates = matches!(session, Session::Sse(_));
         let setup = async {
             let info=session.rpc("initialize",json!({"protocolVersion":config.protocol_version,"capabilities":{},"clientInfo":{"name":"hive-sdk-rust","version":env!("CARGO_PKG_VERSION")}})).await?;
-            if info["protocolVersion"].as_str() != Some(&config.protocol_version)
+            let version_ok = if negotiates {
+                matches!(
+                    info["protocolVersion"].as_str(),
+                    Some("2024-11-05" | "2025-03-26" | "2025-06-18" | "2025-11-25")
+                )
+            } else {
+                info["protocolVersion"].as_str() == Some(&config.protocol_version)
+            };
+            if !version_ok
                 || !["tools", "resources", "prompts"]
                     .iter()
                     .any(|key| info["capabilities"][*key].is_object())
@@ -371,77 +503,13 @@ impl McpClient {
             if !info["capabilities"]["tools"].is_object() {
                 return Ok((vec![], info));
             }
-            let mut catalog = vec![];
-            let mut names = HashSet::new();
-            let mut cursors = HashSet::new();
-            let mut cursor = None::<String>;
-            let mut size = 0usize;
-            for _ in 0..config.max_pages {
-                let params = cursor
-                    .as_ref()
-                    .map_or_else(|| json!({}), |cursor| json!({"cursor":cursor}));
-                let result = session.rpc("tools/list", params).await?;
-                for raw in result["tools"]
-                    .as_array()
-                    .ok_or_else(|| error("tools/list has no tool array"))?
-                {
-                    size = size.saturating_add(serde_json::to_vec(raw)?.len());
-                    if size > config.max_message_bytes || catalog.len() >= config.max_tools {
-                        return Err(error("tool catalog exceeds configured limits"));
-                    }
-                    let name = raw["name"]
-                        .as_str()
-                        .filter(|v| !v.is_empty())
-                        .ok_or_else(|| error("invalid tool name"))?
-                        .to_owned();
-                    if !names.insert(name.clone()) || raw["inputSchema"]["type"] != "object" {
-                        return Err(error("duplicate tool or non-object inputSchema"));
-                    }
-                    let description = match raw.get("description") {
-                        None => String::new(),
-                        Some(value) => value
-                            .as_str()
-                            .ok_or_else(|| error("invalid tool description"))?
-                            .to_owned(),
-                    };
-                    let input_schema = raw["inputSchema"].clone();
-                    let input = crate::validation::compile(&input_schema)?;
-                    let output_schema = raw.get("outputSchema").cloned();
-                    if output_schema
-                        .as_ref()
-                        .is_some_and(|schema| schema["type"] != "object")
-                    {
-                        return Err(error("outputSchema must describe an object"));
-                    }
-                    let output = output_schema
-                        .as_ref()
-                        .map(crate::validation::compile)
-                        .transpose()?;
-                    catalog.push(McpTool {
-                        name,
-                        description,
-                        input_schema,
-                        output_schema,
-                        annotations: raw.get("annotations").cloned(),
-                        input,
-                        output,
-                    });
-                }
-                cursor = match result.get("nextCursor").filter(|v| !v.is_null()) {
-                    None => return Ok((catalog, info)),
-                    Some(value) => Some(
-                        value
-                            .as_str()
-                            .filter(|v| !v.is_empty())
-                            .ok_or_else(|| error("invalid pagination cursor"))?
-                            .to_owned(),
-                    ),
-                };
-                if !cursors.insert(cursor.clone().unwrap()) {
-                    return Err(error("repeated pagination cursor"));
-                }
-            }
-            Err(error("too many catalog pages"))
+            let limits = Limits {
+                max_pages: config.max_pages,
+                max_tools: config.max_tools,
+                max_bytes: config.max_message_bytes,
+            };
+            let catalog = list_tools(&mut session, &limits).await?;
+            Ok((catalog, info))
         };
         let (catalog, info) =
             match tokio::time::timeout(Duration::from_millis(config.timeout_ms), setup).await {
@@ -455,9 +523,16 @@ impl McpClient {
                     return Err(error("MCP connection setup timed out"));
                 }
             };
+        let list_changed = session.changed_flag();
         Ok(Arc::new(Self {
             session: Mutex::new(session),
-            catalog,
+            catalog: std::sync::RwLock::new(Arc::new(catalog)),
+            list_changed,
+            limits: Limits {
+                max_pages: config.max_pages,
+                max_tools: config.max_tools,
+                max_bytes: config.max_message_bytes,
+            },
             info,
             timeout_ms: config.timeout_ms,
             max_bytes: config.max_message_bytes,
@@ -466,11 +541,94 @@ impl McpClient {
             cancellation: CancellationToken::new(),
         }))
     }
-    pub fn tools(&self) -> &[McpTool] {
-        &self.catalog
+    /// The tools as last listed (at connect, or by [`McpClient::refresh_tools`]).
+    pub fn tools(&self) -> Arc<Vec<McpTool>> {
+        self.catalog
+            .read()
+            .map(|tools| tools.clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether the server said its tool list changed. Nothing reads the connection between
+    /// exchanges, so this shows up after the next one; [`McpClient::refresh_tools`] lists now
+    /// whether or not it was announced.
+    pub fn tools_changed(&self) -> bool {
+        self.list_changed.load(Ordering::SeqCst)
+    }
+
+    /// List the tools again and replace the catalog: `{added, removed, changed}` by name (changed
+    /// is a different description or input schema). Calls in flight keep the tool they started
+    /// with; a Rust or host `Agent` has the tool set it was created with, so it is the next run
+    /// that sees the new ones. Fails with "already has an active request" while a call is running.
+    pub async fn refresh_tools(self: &Arc<Self>) -> Result<Value> {
+        if self.is_closed() {
+            return Err(error("client is closed"));
+        }
+        if !self.info["capabilities"]["tools"].is_object() {
+            return Ok(json!({"added":[],"removed":[],"changed":[]}));
+        }
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(error("client already has an active request"));
+        }
+        // Cleared before listing, so a change announced while listing is not lost.
+        self.list_changed.store(false, Ordering::SeqCst);
+        let listed = async {
+            let mut session = self.session.lock().await;
+            let listed = tokio::time::timeout(
+                Duration::from_millis(self.timeout_ms),
+                list_tools(&mut session, &self.limits),
+            )
+            .await;
+            match listed {
+                Ok(Ok(tools)) => Ok(tools),
+                Ok(Err(Error::McpRemote(message))) => Err(Error::McpRemote(message)),
+                _ => {
+                    self.cancel();
+                    session.shutdown().await;
+                    Err(Error::McpOperationUncertain)
+                }
+            }
+        }
+        .await;
+        self.busy.store(false, Ordering::SeqCst);
+        let fresh = listed?;
+        let before = self.tools();
+        let name = |tools: &[McpTool]| -> std::collections::BTreeSet<String> {
+            tools.iter().map(|tool| tool.name.clone()).collect()
+        };
+        let (old_names, new_names) = (name(&before), name(&fresh));
+        let changed: Vec<&String> = new_names
+            .iter()
+            .filter(|tool| old_names.contains(*tool))
+            .filter(|tool| {
+                let find = |list: &[McpTool]| {
+                    list.iter()
+                        .find(|t| &&t.name == tool)
+                        .map(|t| (t.description.clone(), t.input_schema.clone()))
+                };
+                find(&before) != find(&fresh)
+            })
+            .collect();
+        let diff = json!({
+            "added": new_names.difference(&old_names).collect::<Vec<_>>(),
+            "removed": old_names.difference(&new_names).collect::<Vec<_>>(),
+            "changed": changed,
+        });
+        if let Ok(mut catalog) = self.catalog.write() {
+            *catalog = Arc::new(fresh);
+        }
+        Ok(diff)
     }
     pub fn info(&self) -> &Value {
         &self.info
+    }
+    /// Whether a call is running on this client right now.
+    pub(crate) fn is_busy(&self) -> bool {
+        self.busy.load(Ordering::SeqCst)
     }
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
@@ -493,7 +651,7 @@ impl McpClient {
             return Err(error("client is closed"));
         }
         let tool = self
-            .catalog
+            .tools()
             .iter()
             .find(|tool| tool.name == name)
             .ok_or_else(|| error("unknown MCP tool"))?

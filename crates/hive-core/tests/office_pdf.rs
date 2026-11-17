@@ -696,7 +696,7 @@ async fn hostile_and_broken_pdfs_fail_cleanly() {
                 .object(9, "<< /Filter /Standard /V 1 >>")
                 .trailer("<< /Root 1 0 R /Encrypt 9 0 R >>")
                 .build(),
-            "encrypted",
+            "encryption",
         ),
         (
             "no catalog",
@@ -1103,4 +1103,406 @@ async fn themes_fonts_landscape_and_bad_blocks_are_handled() {
         assert!(error.contains(expected), "{extra}: {error}");
     }
     assert!(!dir.path().join("bad.pdf").exists());
+}
+
+// ---- encrypted PDFs --------------------------------------------------------------
+//
+// RC4 files (r2, r3) were made by Ghostscript; AES (r4) and AES-256 (r5, r6) by
+// scripts/gen_encrypted_pdfs.rs. All were checked with poppler before being committed, so they
+// do not prove the reader only against itself.
+
+const ENCRYPTED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/pdf-encrypted");
+const SECRET: [&str; 2] = ["Texto secreto: hola cifrado", "Segunda linea 12345"];
+
+fn encrypted(dir: &Path, name: &str) {
+    std::fs::copy(PathBuf::from(ENCRYPTED).join(name), dir.join(name)).unwrap();
+}
+
+#[tokio::test]
+async fn permission_only_encryption_opens_with_the_empty_password_in_every_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    for (file, method) in [
+        ("r2-empty.pdf", "RC4-40"),
+        ("r3-empty.pdf", "RC4-128"),
+        ("r4-empty.pdf", "AES-128"),
+        ("r5-empty.pdf", "AES-256"),
+        ("r6-empty.pdf", "AES-256"),
+    ] {
+        encrypted(dir.path(), file);
+        let result = text_of(&tools, file).await;
+        assert_eq!(lines(&result), SECRET, "{file}");
+        assert_eq!(result["encryption"], method, "{file}");
+        assert!(
+            result["warnings"].to_string().contains("empty password"),
+            "{file}: {}",
+            result["warnings"]
+        );
+    }
+    // Strings are decrypted too (the document title is a string of the Info dictionary).
+    let result = text_of(&tools, "r6-empty.pdf").await;
+    assert!(
+        result["metadata"]["title"]
+            .as_str()
+            .unwrap()
+            .contains("cifrado"),
+        "{}",
+        result["metadata"]
+    );
+    // An unencrypted file says so and ignores a password nobody needed.
+    encrypted(dir.path(), "plain.pdf");
+    let plain = call(
+        &tools,
+        "office_read_pdf",
+        json!({"path":"plain.pdf","password":"x"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (lines(&plain), plain["encryption"].clone()),
+        (SECRET.map(str::to_owned).to_vec(), Value::Null)
+    );
+}
+
+#[tokio::test]
+async fn a_user_password_is_required_and_checked() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    for file in [
+        "r2-pw.pdf",
+        "r3-pw.pdf",
+        "r4-pw.pdf",
+        "r5-pw.pdf",
+        "r6-pw.pdf",
+    ] {
+        encrypted(dir.path(), file);
+        let missing = message(
+            call(&tools, "office_read_pdf", json!({"path":file}))
+                .await
+                .unwrap_err(),
+        );
+        assert!(
+            missing.contains("give its password in `password`"),
+            "{file}: {missing}"
+        );
+        let wrong = message(
+            call(
+                &tools,
+                "office_read_pdf",
+                json!({"path":file,"password":"nope"}),
+            )
+            .await
+            .unwrap_err(),
+        );
+        assert!(wrong.contains("incorrect password"), "{file}: {wrong}");
+        let almost = message(
+            call(
+                &tools,
+                "office_read_pdf",
+                json!({"path":file,"password":"Secreto"}),
+            )
+            .await
+            .unwrap_err(),
+        );
+        assert!(
+            almost.contains("incorrect password"),
+            "case matters: {almost}"
+        );
+        let result = call(
+            &tools,
+            "office_read_pdf",
+            json!({"path":file,"password":"secreto"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(lines(&result), SECRET, "{file}");
+        assert!(
+            result["warnings"].to_string().contains("given password"),
+            "{file}"
+        );
+        assert!(
+            !result.to_string().contains("secreto\""),
+            "the password is never echoed"
+        );
+    }
+}
+
+#[tokio::test]
+async fn poppler_reads_the_same_text_from_every_encrypted_fixture() {
+    if !tool_ok("pdftotext") {
+        eprintln!("skipped: poppler is not installed");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    for file in [
+        "r2-pw.pdf",
+        "r3-pw.pdf",
+        "r4-pw.pdf",
+        "r5-pw.pdf",
+        "r6-pw.pdf",
+    ] {
+        encrypted(dir.path(), file);
+        let ours = call(
+            &tools,
+            "office_read_pdf",
+            json!({"path":file,"password":"secreto"}),
+        )
+        .await
+        .unwrap();
+        let theirs = run_tool(dir.path(), "pdftotext", &["-upw", "secreto", file, "-"]);
+        let theirs: Vec<&str> = theirs
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        assert_eq!(lines(&ours), theirs, "{file}");
+    }
+}
+
+#[tokio::test]
+async fn damaged_or_unsupported_encryption_fails_cleanly() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = tools(dir.path(), json!({}));
+    let good = std::fs::read(PathBuf::from(ENCRYPTED).join("r4-empty.pdf")).unwrap();
+    let text = String::from_utf8_lossy(&good).into_owned();
+    let broken = |name: &str, bytes: Vec<u8>| std::fs::write(dir.path().join(name), bytes).unwrap();
+    // A public-key handler, an unknown revision, a missing key entry and a mangled /O.
+    broken(
+        "pubkey.pdf",
+        text.replace("/Filter /Standard", "/Filter /Adobe.PubSec")
+            .into_bytes(),
+    );
+    broken("rev9.pdf", text.replace("/R 4", "/R 9").into_bytes());
+    broken("nokey.pdf", text.replace("/O <", "/Z <").into_bytes());
+    broken(
+        "badcf.pdf",
+        text.replace("/CFM /AESV2", "/CFM /Weird").into_bytes(),
+    );
+    let mut truncated = good.clone();
+    if let Some(at) = text.find("stream\n") {
+        truncated.drain(at + 7 + 5..at + 7 + 20);
+    }
+    broken("truncated.pdf", truncated);
+    for (file, expected) in [
+        ("pubkey.pdf", "security handler"),
+        ("rev9.pdf", "revision"),
+        ("nokey.pdf", "malformed"),
+        ("badcf.pdf", "crypt filter"),
+    ] {
+        let error = message(
+            call(&tools, "office_read_pdf", json!({"path":file}))
+                .await
+                .unwrap_err(),
+        );
+        assert!(error.contains(expected), "{file}: {error}");
+    }
+    // A stream cut in the middle of its ciphertext is a warning for that page, not a panic.
+    let result = call(&tools, "office_read_pdf", json!({"path":"truncated.pdf"})).await;
+    let result = result.unwrap();
+    assert!(
+        result["warnings"]
+            .to_string()
+            .contains("page 1: corrupt encrypted data"),
+        "{}",
+        result["warnings"]
+    );
+    assert_eq!(
+        result["text"], "",
+        "no garbage text from a stream that could not be decrypted"
+    );
+    // Too long a password is refused by the schema before anything is derived.
+    encrypted(dir.path(), "r6-pw.pdf");
+    assert!(
+        call(
+            &tools,
+            "office_read_pdf",
+            json!({"path":"r6-pw.pdf","password":"x".repeat(200)})
+        )
+        .await
+        .is_err()
+    );
+}
+
+// ─── Scanned pages: the picture a scanner leaves in each page ────────────────
+
+/// A PDF whose pages each hold one image XObject (`dict` entries and the stream bytes), or none.
+fn pdf_of_images(pages: &[Option<(&str, Vec<u8>)>]) -> Vec<u8> {
+    let mut pdf = b"%PDF-1.4\n".to_vec();
+    let mut offsets: Vec<usize> = vec![];
+    let mut add = |pdf: &mut Vec<u8>, body: Vec<u8>| {
+        offsets.push(pdf.len());
+        let number = offsets.len();
+        pdf.extend(format!("{number} 0 obj\n").as_bytes());
+        pdf.extend(body);
+        pdf.extend(b"\nendobj\n");
+    };
+    // 1 = catalog, 2 = pages, then per page: page object and (when it has one) its image.
+    add(&mut pdf, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+    let kids: Vec<String> = (0..pages.len())
+        .map(|i| format!("{} 0 R", 3 + i * 2))
+        .collect();
+    add(
+        &mut pdf,
+        format!(
+            "<< /Type /Pages /Kids [{}] /Count {} >>",
+            kids.join(" "),
+            pages.len()
+        )
+        .into_bytes(),
+    );
+    for (i, page) in pages.iter().enumerate() {
+        let image = 4 + i * 2;
+        let resources = if page.is_some() {
+            format!("/Resources << /XObject << /Im0 {image} 0 R >> >>")
+        } else {
+            "/Resources << >>".to_string()
+        };
+        add(
+            &mut pdf,
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] {resources} >>")
+                .into_bytes(),
+        );
+        let mut body = match page {
+            Some((dict, data)) => {
+                let mut b = format!(
+                    "<< /Type /XObject /Subtype /Image {dict} /Length {} >>\nstream\n",
+                    data.len()
+                )
+                .into_bytes();
+                b.extend(data);
+                b.extend(b"\nendstream");
+                b
+            }
+            None => b"<< >>".to_vec(),
+        };
+        add(&mut pdf, std::mem::take(&mut body));
+    }
+    let xref = pdf.len();
+    pdf.extend(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
+    for offset in &offsets {
+        pdf.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            offsets.len() + 1
+        )
+        .as_bytes(),
+    );
+    pdf
+}
+
+fn jpeg(width: u32, height: u32) -> Vec<u8> {
+    let image = image_codec::RgbImage::from_fn(width, height, |x, y| {
+        image_codec::Rgb([(x * 7) as u8, (y * 5) as u8, 90])
+    });
+    let mut out = std::io::Cursor::new(vec![]);
+    image
+        .write_to(&mut out, image_codec::ImageFormat::Jpeg)
+        .unwrap();
+    out.into_inner()
+}
+fn deflate(bytes: &[u8]) -> Vec<u8> {
+    miniz_like::zlib(bytes)
+}
+mod miniz_like {
+    /// A stored (uncompressed) zlib stream: valid input for the reader without a compressor dependency.
+    pub fn zlib(bytes: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x78, 0x01];
+        let mut chunks = bytes.chunks(65535).peekable();
+        if bytes.is_empty() {
+            out.extend([1, 0, 0, 0xFF, 0xFF]);
+        }
+        while let Some(chunk) = chunks.next() {
+            out.push(u8::from(chunks.peek().is_none()));
+            out.extend((chunk.len() as u16).to_le_bytes());
+            out.extend((!(chunk.len() as u16)).to_le_bytes());
+            out.extend(chunk);
+        }
+        let (mut a, mut b) = (1u32, 0u32);
+        for byte in bytes {
+            a = (a + *byte as u32) % 65521;
+            b = (b + a) % 65521;
+        }
+        out.extend(((b << 16) | a).to_be_bytes());
+        out
+    }
+}
+
+#[test]
+fn a_scanned_pdf_gives_the_picture_of_each_page_and_names_the_pages_that_have_none() {
+    let jpeg = jpeg(16, 12);
+    // Raw RGB 4x2 with PNG "Up" predictor on every row (10 = rows are filtered).
+    let rgb: Vec<u8> = (0..24).map(|n| (n * 9) as u8).collect();
+    let mut predicted = vec![];
+    let mut previous = vec![0u8; 12];
+    for row in rgb.chunks(12) {
+        predicted.push(2);
+        predicted.extend(row.iter().zip(&previous).map(|(a, b)| a.wrapping_sub(*b)));
+        previous = row.to_vec();
+    }
+    // 1-bit gray 8x2: rows 0b10101010 and 0b11110000.
+    let bilevel = vec![0b1010_1010, 0b1111_0000];
+    let pdf = pdf_of_images(&[
+        Some((
+            "/Width 16 /Height 12 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode",
+            jpeg.clone(),
+        )),
+        Some((
+            "/Width 4 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 /Colors 3 >>",
+            deflate(&predicted),
+        )),
+        Some((
+            "/Width 8 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode",
+            deflate(&bilevel),
+        )),
+        Some((
+            "/Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /CCITTFaxDecode",
+            vec![0; 8],
+        )),
+        None,
+    ]);
+    let found = hive_agent_core::tools::pdf_page_images(&pdf, 1, 99, None, 5_000).unwrap();
+    assert_eq!(found.total_pages, 5);
+    let pages: Vec<(usize, &str, u32, u32)> = found
+        .images
+        .iter()
+        .map(|i| (i.page, i.media_type, i.width, i.height))
+        .collect();
+    assert_eq!(
+        pages,
+        [
+            (1, "image/jpeg", 16, 12),
+            (2, "image/png", 4, 2),
+            (3, "image/png", 8, 2)
+        ]
+    );
+    assert_eq!(
+        found.images[0].data, jpeg,
+        "a JPEG is handed over exactly as it was embedded"
+    );
+    let warned = found.warnings.join("\n");
+    assert!(
+        warned.contains("página 4")
+            && warned.contains("CCITT")
+            && warned.contains("página 5")
+            && warned.contains("no tiene una imagen"),
+        "{warned}"
+    );
+    // The re-encoded pictures are real PNGs with the original pixels.
+    let decoded = image_codec::load_from_memory(&found.images[1].data)
+        .unwrap()
+        .to_rgb8();
+    assert_eq!(decoded.into_raw(), rgb, "the predictor was undone");
+    let gray = image_codec::load_from_memory(&found.images[2].data)
+        .unwrap()
+        .to_luma8()
+        .into_raw();
+    assert_eq!(&gray[..8], [255, 0, 255, 0, 255, 0, 255, 0]);
+    assert_eq!(&gray[8..], [255, 255, 255, 255, 0, 0, 0, 0]);
+    // A range picks pages; an empty range finds nothing instead of failing.
+    let some = hive_agent_core::tools::pdf_page_images(&pdf, 2, 2, None, 5_000).unwrap();
+    assert_eq!(some.images.iter().map(|i| i.page).collect::<Vec<_>>(), [2]);
+    // Garbage is an error, not a panic.
+    assert!(hive_agent_core::tools::pdf_page_images(b"no soy un pdf", 1, 1, None, 5_000).is_err());
 }

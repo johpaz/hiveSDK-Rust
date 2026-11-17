@@ -203,8 +203,19 @@ fn dispatch(py: Python<'_>, command: String) -> PyResult<String> {
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
+/// Evaluate a declarative tool policy for one call: `{decision, rule, reason}` as JSON.
+#[pyfunction]
+fn evaluate_tool_policy(policy: String, tool: String, arguments: String) -> PyResult<String> {
+    let parse =
+        |text: &str| serde_json::from_str(text).map_err(|e| PyRuntimeError::new_err(e.to_string()));
+    hive_agent_core::policy::evaluate_json(parse(&policy)?, &tool, parse(&arguments)?)
+        .map(|value| value.to_string())
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(evaluate_tool_policy, module)?)?;
     module.add_class::<NativeBrowser>()?;
     module.add_function(wrap_pyfunction!(connect_browser, module)?)?;
     module.add_class::<NativeTools>()?;
@@ -218,6 +229,8 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<NativeModelRequest>()?;
     module.add_function(wrap_pyfunction!(dispatch, module)?)?;
     module.add_class::<NativeMcpClient>()?;
+    module.add_class::<NativeMcpManager>()?;
+    module.add_function(wrap_pyfunction!(create_mcp_manager, module)?)?;
     module.add_class::<NativeMcpRequest>()?;
     module.add_function(wrap_pyfunction!(connect_mcp, module)?)?;
     Ok(())
@@ -294,8 +307,19 @@ impl NativeMcpClient {
             })
         })
     }
+    fn tools_changed(&self) -> bool {
+        self.inner.tools_changed()
+    }
+    fn refresh_tools(&self, py: Python<'_>) -> PyResult<String> {
+        py.detach(|| {
+            runtime()?
+                .block_on(self.inner.refresh_tools())
+                .map(|value| value.to_string())
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
     fn catalog(&self) -> PyResult<String> {
-        serde_json::to_string(self.inner.tools())
+        serde_json::to_string(&*self.inner.tools())
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
     fn info(&self) -> PyResult<String> {
@@ -332,6 +356,84 @@ impl NativeMcpClient {
 impl Drop for NativeMcpClient {
     fn drop(&mut self) {
         self.inner.cancel();
+    }
+}
+/// Several named MCP servers that can be reloaded while running.
+#[pyclass(frozen)]
+struct NativeMcpManager {
+    inner: Arc<hive_agent_core::mcp::McpManager>,
+}
+#[pyfunction]
+fn create_mcp_manager() -> NativeMcpManager {
+    NativeMcpManager {
+        inner: Arc::new(hive_agent_core::mcp::McpManager::new()),
+    }
+}
+#[pymethods]
+impl NativeMcpManager {
+    fn apply(&self, py: Python<'_>, desired: String, drain_ms: u64) -> PyResult<String> {
+        py.detach(|| {
+            let desired = serde_json::from_str(&desired)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            runtime()?
+                .block_on(self.inner.apply(desired, drain_ms))
+                .map(|value| value.to_string())
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+    fn reconnect(&self, py: Python<'_>, name: String) -> PyResult<String> {
+        py.detach(|| {
+            runtime()?
+                .block_on(self.inner.reconnect(&name))
+                .map(|value| value.to_string())
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+    fn refresh_tools(&self, py: Python<'_>, name: String) -> PyResult<String> {
+        py.detach(|| {
+            runtime()?
+                .block_on(self.inner.refresh_tools(&name))
+                .map(|value| value.to_string())
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+    fn status(&self) -> String {
+        self.inner.status().to_string()
+    }
+    fn catalog(&self) -> String {
+        self.inner.catalog().to_string()
+    }
+    fn start_call(
+        &self,
+        py: Python<'_>,
+        server: String,
+        tool: String,
+        arguments: String,
+        context: String,
+    ) -> PyResult<NativeMcpRequest> {
+        py.detach(|| {
+            let parse = |text: &str| {
+                serde_json::from_str(text).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            };
+            let _guard = runtime()?.enter();
+            Ok(NativeMcpRequest {
+                inner: self
+                    .inner
+                    .start_call(&server, &tool, parse(&arguments)?, parse(&context)?)
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
+            })
+        })
+    }
+    fn close(&self, py: Python<'_>) -> PyResult<()> {
+        py.detach(|| {
+            runtime()?.block_on(self.inner.close_all());
+            Ok(())
+        })
+    }
+}
+impl Drop for NativeMcpManager {
+    fn drop(&mut self) {
+        self.inner.cancel_all();
     }
 }
 #[pyclass(frozen)]
@@ -454,8 +556,8 @@ struct NativeOracle {
 impl NativeOracle {
     #[new]
     fn new(config: String) -> PyResult<Self> {
-        let config = serde_json::from_str(&config)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let config =
+            serde_json::from_str(&config).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self {
             inner: Arc::new(
                 hive_agent_core::oracle::Oracle::from_json(config)
@@ -467,8 +569,8 @@ impl NativeOracle {
     /// `{state, questions}` in, the reply JSON out.
     fn ask(&self, py: Python<'_>, input: String) -> PyResult<String> {
         py.detach(|| {
-            let input = serde_json::from_str(&input)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            let input =
+                serde_json::from_str(&input).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             let token = self.cancellation.lock().unwrap().clone();
             let reply = runtime()?
                 .block_on(self.inner.ask_json(input, &token))

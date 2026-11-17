@@ -31,9 +31,30 @@ pub struct OpenAiProfile {
     pub no_tool_models: Vec<String>,
     /// Also treat names containing `-r1` or `/r1` as models without tools.
     pub no_tool_r1_models: bool,
+    /// Read tool calls a model wrote as text (`<tool_call>{"name":…,"arguments":…}</tool_call>`, or the
+    /// whole reply being such a JSON object, optionally in a code fence) when the reply has no real
+    /// ones. Only a call to a tool of this request counts; anything else stays text. Off by default:
+    /// a model that merely quotes a call must not run it.
+    pub text_tool_calls: bool,
+    /// Send the `reasoning_content` a reply carried back with its assistant message (DeepSeek, Kimi
+    /// K2 thinking need it with their tool calls). Everyone else never sees it.
+    pub round_trip_reasoning: bool,
+    /// Turn thinking on through `chat_template_kwargs`, chosen by model (NVIDIA): the first rule
+    /// whose `models` has a name contained in the model id applies. Off unless `thinking` is true.
+    pub thinking: bool,
+    pub thinking_kwargs: Vec<ThinkingKwargs>,
     /// Header that carries a stable per-provider session identifier.
     pub session_header: Option<String>,
     pub user_agent: Option<String>,
+}
+
+/// One family of models and the template switch that turns its thinking on.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThinkingKwargs {
+    /// Case-insensitive fragments of the model id.
+    pub models: Vec<String>,
+    pub kwargs: Map<String, Value>,
 }
 
 impl OpenAiProfile {
@@ -143,6 +164,31 @@ pub(crate) fn apply(
     body: &mut Value,
 ) -> Result<NameMap> {
     let mut restore = NameMap::new();
+    if !profile.round_trip_reasoning
+        && let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut)
+    {
+        for message in messages {
+            if let Some(object) = message.as_object_mut() {
+                object.remove("reasoning_content");
+            }
+        }
+    }
+    if profile.thinking {
+        let model = request.model.to_lowercase();
+        if let Some(rule) = profile.thinking_kwargs.iter().find(|rule| {
+            rule.models
+                .iter()
+                .any(|name| !name.is_empty() && model.contains(&name.to_lowercase()))
+        }) {
+            let mut kwargs = body
+                .get("chat_template_kwargs")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            kwargs.extend(rule.kwargs.clone());
+            body["chat_template_kwargs"] = Value::Object(kwargs);
+        }
+    }
     if profile.normalize_tool_names {
         let history = request
             .messages
@@ -214,6 +260,109 @@ pub(crate) fn apply(
         }
     }
     Ok(restore)
+}
+
+/// What happens to every reply: tool names back to the original, then (if the profile asks) tool
+/// calls written as text become real ones.
+pub(crate) fn finish_reply(
+    profile: &OpenAiProfile,
+    names: &NameMap,
+    tools: &[String],
+    reply: &mut ModelReply,
+) {
+    restore_names(reply, names);
+    if profile.text_tool_calls && reply.tool_calls.is_empty() {
+        extract_text_tool_calls(reply, tools);
+    }
+}
+
+fn call_from_json(value: &Value, tools: &[String], at: usize) -> Option<crate::ToolCall> {
+    let object = value.as_object()?;
+    let name = object
+        .get("name")
+        .or_else(|| object.get("tool"))
+        .or_else(|| value.pointer("/function/name"))?
+        .as_str()?;
+    if !tools.iter().any(|tool| tool == name) {
+        return None;
+    }
+    let arguments = ["arguments", "parameters", "args", "input"]
+        .iter()
+        .find_map(|key| object.get(*key))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    // Some models send the arguments as a JSON string.
+    let arguments = match arguments {
+        Value::String(text) => serde_json::from_str(&text).ok()?,
+        other => other,
+    };
+    arguments.is_object().then(|| crate::ToolCall {
+        id: format!("text-call-{at}"),
+        name: name.to_owned(),
+        arguments,
+    })
+}
+
+pub(crate) fn extract_text_tool_calls(reply: &mut ModelReply, tools: &[String]) {
+    let Some(content) = reply.content.clone() else {
+        return;
+    };
+    let mut calls = vec![];
+    let mut rest = String::new();
+    let mut from = 0;
+    // `<tool_call>…</tool_call>` blocks anywhere in the text.
+    while let Some(open) = content[from..].find("<tool_call>").map(|at| at + from) {
+        let body_start = open + "<tool_call>".len();
+        let Some(close) = content[body_start..]
+            .find("</tool_call>")
+            .map(|at| at + body_start)
+        else {
+            break;
+        };
+        match serde_json::from_str::<Value>(content[body_start..close].trim())
+            .ok()
+            .and_then(|value| call_from_json(&value, tools, calls.len()))
+        {
+            Some(call) => {
+                rest.push_str(&content[from..open]);
+                calls.push(call);
+            }
+            // Not a call to one of our tools: it stays in the text as it was.
+            None => rest.push_str(&content[from..close + "</tool_call>".len()]),
+        }
+        from = close + "</tool_call>".len();
+    }
+    rest.push_str(&content[from..]);
+    if calls.is_empty() {
+        // Or the whole reply is the call (or a list of them), maybe fenced.
+        let body = content.trim();
+        let body = body
+            .strip_prefix("```json")
+            .or_else(|| body.strip_prefix("```"))
+            .map(|inner| inner.strip_suffix("```").unwrap_or(inner).trim())
+            .unwrap_or(body);
+        let parsed: Option<Vec<Value>> = match serde_json::from_str::<Value>(body).ok() {
+            Some(Value::Array(items)) => Some(items),
+            Some(object @ Value::Object(_)) => Some(vec![object]),
+            _ => None,
+        };
+        let Some(items) = parsed else { return };
+        let found: Vec<_> = items
+            .iter()
+            .enumerate()
+            .map(|(at, item)| call_from_json(item, tools, at))
+            .collect();
+        // Every item has to be a call, or this is just JSON the model was asked to write.
+        if found.is_empty() || found.iter().any(Option::is_none) {
+            return;
+        }
+        reply.tool_calls = found.into_iter().flatten().collect();
+        reply.content = None;
+        return;
+    }
+    reply.tool_calls = calls;
+    let rest = rest.trim();
+    reply.content = (!rest.is_empty()).then(|| rest.to_owned());
 }
 
 pub(crate) fn restore_names(reply: &mut ModelReply, names: &NameMap) {
@@ -291,13 +440,23 @@ fn table() -> Vec<Entry> {
         }),
         compat("deepseek", "https://api.deepseek.com/v1", || {
             with(
-                json!({"no_tool_models":["deepseek-reasoner","deepseek/deepseek-r1:free"],"no_tool_r1_models":true}),
+                json!({"no_tool_models":["deepseek-reasoner","deepseek/deepseek-r1:free"],"no_tool_r1_models":true,"round_trip_reasoning":true}),
             )
         }),
         compat("kimi", "https://api.moonshot.ai/v1", || {
-            with(json!({"parallel_tool_calls":false}))
+            with(json!({"parallel_tool_calls":false,"round_trip_reasoning":true}))
         }),
-        compat("nvidia", "https://integrate.api.nvidia.com/v1", common),
+        compat("nvidia", "https://integrate.api.nvidia.com/v1", || {
+            // NIM keeps reasoning off by default; the switch is `chat_template_kwargs`, with a different
+            // key per family. Families not listed are left alone on purpose: sending a key their
+            // template does not accept is what breaks the call.
+            with(json!({"thinking_kwargs":[
+                {"models":["glm"],"kwargs":{"enable_thinking":true,"clear_thinking":false}},
+                {"models":["minimax"],"kwargs":{"thinking_mode":"enabled"}},
+                {"models":["kimi","deepseek"],"kwargs":{"thinking":true}},
+                {"models":["qwen","qwq"],"kwargs":{"enable_thinking":true}}
+            ]}))
+        }),
         compat(
             "qwen",
             "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
@@ -321,7 +480,10 @@ fn table() -> Vec<Entry> {
             common,
         ),
         // Ollama's OpenAI-compatible endpoint, not its native /api/chat protocol.
-        compat("ollama", "http://localhost:11434/v1", common),
+        compat("ollama", "http://localhost:11434/v1", || {
+            // Local models often write the call as text instead of using the tool-call field.
+            with(json!({"text_tool_calls":true}))
+        }),
     ]
 }
 
@@ -354,7 +516,19 @@ pub(crate) fn expand(config: &mut Map<String, Value>, id: &str) -> Result<()> {
         .or_insert_with(|| json!(entry.preset.base_url));
     let profile = (entry.profile)();
     if !profile.is_null() {
-        config.entry("profile").or_insert(profile);
+        match (config.get_mut("profile"), &profile) {
+            (None, _) => {
+                config.insert("profile".into(), profile);
+            }
+            // The caller's keys win, key by key: `{"profile":{"thinking":true}}` turns one switch
+            // on without throwing the preset's other adjustments away.
+            (Some(Value::Object(own)), Value::Object(base)) => {
+                for (key, value) in base {
+                    own.entry(key.clone()).or_insert_with(|| value.clone());
+                }
+            }
+            _ => {}
+        }
     }
     Ok(())
 }

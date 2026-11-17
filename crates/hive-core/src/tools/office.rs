@@ -6,6 +6,7 @@
 //! sheet counts and processing time are all capped. Legacy binary formats
 //! (.doc, .xls, .ppt), macros, embedded objects and PDF are not handled.
 mod docx;
+mod pdf_crypt;
 mod pdf_metrics;
 mod pdf_read;
 mod pdf_write;
@@ -88,6 +89,20 @@ impl Deadline {
     }
 }
 
+/// The embedded picture of each page of a scanned PDF, for a host that shows pages to a model that reads
+/// pictures but not PDF. It renders nothing: a page whose content is drawn rather than scanned has no
+/// picture and is reported as such.
+pub fn pdf_page_images(
+    bytes: &[u8],
+    first: usize,
+    last: usize,
+    password: Option<&str>,
+    timeout_ms: u64,
+) -> Result<PdfPageImages> {
+    pdf_read::page_images(bytes, first, last, password, &Deadline::new(timeout_ms))
+}
+pub use pdf_read::{PageImage as PdfPageImage, PageImages as PdfPageImages};
+
 pub(super) fn specs() -> Vec<(&'static str, &'static str, Value, Vec<&'static str>)> {
     let path = json!({"type":"string","maxLength":4096});
     let create_dirs = json!({"type":"boolean"});
@@ -136,8 +151,10 @@ pub(super) fn specs() -> Vec<(&'static str, &'static str, Value, Vec<&'static st
         ),
         (
             "office_write_docx",
-            "Create a Word (.docx) file with a title, headings, paragraphs, bullet lists and tables.",
+            "Create a Word (.docx) file with a title, headings, paragraphs, bullet lists and tables. `header` and `footer` ({text, align left|center|right}) repeat on every page; their text may contain {page}, {pages} and {title}.",
             json!({"path":path,"create_dirs":create_dirs,"title":text(1000),
+                "header":{"type":"object","additionalProperties":false,"properties":{"text":text(1000),"align":{"type":"string","enum":["left","center","right"]}}},
+                "footer":{"type":"object","additionalProperties":false,"properties":{"text":text(1000),"align":{"type":"string","enum":["left","center","right"]}}},
                 "paragraphs":{"type":"array","maxItems":10000,"items":{"type":"object","additionalProperties":false,"required":["text"],"properties":{
                     "text":text(200000),"type":{"type":"string","enum":["title1","title2","title3","paragraph","list"]},
                     "bold":{"type":"boolean"},"italic":{"type":"boolean"}}}},
@@ -149,23 +166,28 @@ pub(super) fn specs() -> Vec<(&'static str, &'static str, Value, Vec<&'static st
         ),
         (
             "office_read_xlsx",
-            "Read an Excel (.xlsx) file as JSON rows (first row as keys, or arrays), optionally one sheet or an A1 range.",
-            json!({"path":path,"sheet":text(31),"include_headers":{"type":"boolean"},"range":text(32)}),
+            "Read an Excel (.xlsx) file as JSON rows (first row as keys, or arrays), optionally one sheet or an A1 range. Cells with a date or time format come back as ISO text (2025-03-01, 2025-03-01T14:30:00, 14:30:00); pass dates=serial for Excel's day numbers instead.",
+            json!({"path":path,"sheet":text(31),"include_headers":{"type":"boolean"},"range":text(32),"dates":{"type":"string","enum":["iso","serial"]}}),
             vec!["path"],
         ),
         (
             "office_write_xlsx",
-            "Create an Excel (.xlsx) file from sheets of objects or arrays. Object columns are the sorted keys unless headers is given.",
+            "Create an Excel (.xlsx) file from sheets of objects or arrays. Object columns are the sorted keys unless headers is given. Per sheet, `columns` can set a format (date, datetime, time, integer, decimal, thousands, percent, currency, text or an Excel format code; ISO strings such as 2025-03-01 or 2025-03-01T14:30:00 in a date column are stored as real dates), a width, bold, color, fill, align and wrap for a column named by its header text or index; `header_style` styles the first row; `freeze_header` pins it and `autofilter` adds filter buttons. Colors are #RRGGBB. Cells are always values: text starting with = is never a formula.",
             json!({"path":path,"create_dirs":create_dirs,
                 "sheets":{"type":"array","minItems":1,"maxItems":1000,"items":{"type":"object","additionalProperties":false,"required":["name","data"],"properties":{
                     "name":text(31),"data":{"type":"array","items":{"type":["object","array"]}},
-                    "headers":{"type":"array","maxItems":1000,"items":{"type":"string","maxLength":32767}}}}}}),
+                    "headers":{"type":"array","maxItems":1000,"items":{"type":"string","maxLength":32767}},
+                    "columns":{"type":"array","maxItems":1000,"items":{"type":"object","additionalProperties":false,"required":["column"],"properties":{
+                        "column":{"type":["string","integer"],"minimum":0,"maximum":999},"format":text(64),"width":{"type":"number","minimum":1,"maximum":255},
+                        "bold":{"type":"boolean"},"color":text(7),"fill":text(7),"align":{"type":"string","enum":["left","center","right"]},"wrap":{"type":"boolean"}}}},
+                    "header_style":{"type":"object","additionalProperties":false,"properties":{"bold":{"type":"boolean"},"color":text(7),"fill":text(7),"align":{"type":"string","enum":["left","center","right"]}}},
+                    "freeze_header":{"type":"boolean"},"autofilter":{"type":"boolean"}}}}}),
             vec!["path", "sheets"],
         ),
         (
             "office_read_pdf",
-            "Extract text from a PDF by page, with its metadata. Encrypted files, fonts without a Unicode mapping and scanned images are reported in warnings, not guessed.",
-            json!({"path":path,"start_page":{"type":"integer","minimum":1},"end_page":{"type":"integer","minimum":1}}),
+            "Extract text from a PDF by page, with its metadata. Opens encrypted PDFs (RC4, AES-128, AES-256) with the empty password or the user `password` you give; fonts without a Unicode mapping and scanned images are reported in warnings, not guessed, and there is no OCR.",
+            json!({"path":path,"start_page":{"type":"integer","minimum":1},"end_page":{"type":"integer","minimum":1},"password":{"type":"string","maxLength":127}}),
             vec!["path"],
         ),
         (
@@ -182,7 +204,7 @@ pub(super) fn specs() -> Vec<(&'static str, &'static str, Value, Vec<&'static st
         ),
         (
             "office_write_pptx",
-            "Create a styled 16:9 PowerPoint (.pptx) deck: an optional cover, then slides with a title and either free text or bullet points. Pick a theme preset or override its colors and fonts.",
+            "Create a styled 16:9 PowerPoint (.pptx) deck: an optional cover, then slides with a title and either free text or bullet points, and optional speaker `notes` per slide. Pick a theme preset or override its colors and fonts.",
             json!({"path":path,"create_dirs":create_dirs,"presentation_title":text(1000),"presentation_subtitle":text(1000),
                 "theme":{"type":"object","additionalProperties":false,"properties":{
                     "preset":{"type":"string","enum":["modern","light","dark","corporate","warm"]},
@@ -192,7 +214,7 @@ pub(super) fn specs() -> Vec<(&'static str, &'static str, Value, Vec<&'static st
                     "fonts":{"type":"object","additionalProperties":false,"properties":{
                         "title":font.clone(),"body":font.clone()}}}},
                 "slides":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","additionalProperties":false,"properties":{
-                    "title":text(100000),"content":text(100000),"points":{"type":"array","maxItems":100,"items":text(100000)}}}}}),
+                    "title":text(100000),"content":text(100000),"points":{"type":"array","maxItems":100,"items":text(100000)},"notes":text(100000)}}}}),
             vec!["path", "slides"],
         ),
     ]
@@ -242,6 +264,7 @@ pub(super) fn run(inner: &Inner, name: &str, arguments: &Value) -> Result<Value>
                 arguments["sheet"].as_str(),
                 arguments["include_headers"].as_bool() != Some(false),
                 arguments["range"].as_str(),
+                arguments["dates"].as_str() != Some("serial"),
                 policy,
                 &deadline,
             )?,
@@ -249,6 +272,7 @@ pub(super) fn run(inner: &Inner, name: &str, arguments: &Value) -> Result<Value>
                 &bytes,
                 arguments["start_page"].as_u64(),
                 arguments["end_page"].as_u64(),
+                arguments["password"].as_str(),
                 &deadline,
             )?,
             _ => pptx::read(&bytes, arguments["only_slide"].as_u64(), &deadline)?,

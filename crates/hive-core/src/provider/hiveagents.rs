@@ -68,6 +68,7 @@ pub(super) fn create(config: HiveAgentsConfig) -> Result<NativeProvider> {
         timeout_ms: config.timeout_ms,
         max_response_bytes: config.max_response_bytes,
         output_token_parameter: OutputTokenParameter::MaxTokens,
+        context_window: Some(config.context_window),
     };
     let mut provider = HttpProvider::new(common, Protocol::OpenAi)?;
     provider.managed = Some(Managed {

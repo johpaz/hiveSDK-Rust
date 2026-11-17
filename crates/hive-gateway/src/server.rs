@@ -92,8 +92,13 @@ pub async fn connection<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         let check = app.clone();
         let token = token.map(str::to_owned);
         let user = tokio::task::spawn_blocking(move || -> Result<Option<String>> {
-            if !check.authorized(token.as_deref())? {
+            let Some(principal) = check.authenticate(token.as_deref())? else {
                 return Ok(None);
+            };
+            // A per-user token is that user and no one else, whatever `session` asks for.
+            if !principal.admin {
+                let own = requested_user.is_empty() || requested_user == principal.user;
+                return Ok((own && !meeting && !realtime).then_some(principal.user));
             }
             let users = config::docs(&check.db, "users")?;
             Ok(users
@@ -153,6 +158,15 @@ pub async fn connection<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         }
         return websocket(app, user, upgraded).await;
     }
+    // The public routes: the WhatsApp and Slack webhooks, each protected by its own signature check.
+    if request.uri().path().starts_with("/webhook/whatsapp/") {
+        let (code, value) = crate::whatsapp::handle(app, request).await;
+        return respond(&mut socket, code, value).await;
+    }
+    if request.uri().path().starts_with("/webhook/slack/") {
+        let (code, value) = crate::slack::handle(app, request).await;
+        return respond(&mut socket, code, value).await;
+    }
     let result = tokio::task::spawn_blocking(move || route(&app, request)).await?;
     let (code, value) = result.unwrap_or_else(|e| (500, json!({"error":e.to_string()})));
     respond(&mut socket, code, value).await
@@ -198,17 +212,24 @@ async fn read_request<S: AsyncRead + Unpin>(socket: &mut S) -> Result<Request<Ve
 }
 
 async fn respond<S: AsyncWrite + Unpin>(socket: &mut S, code: u16, value: Value) -> Result<()> {
-    let body = value.to_string();
+    // A string body is sent as plain text (WhatsApp's verification must echo its challenge as is).
+    let (body, kind) = match &value {
+        Value::String(text) => (text.clone(), "text/plain; charset=utf-8"),
+        other => (other.to_string(), "application/json"),
+    };
     let reason = StatusCode::from_u16(code)?
         .canonical_reason()
         .unwrap_or("Error");
     let headers = format!(
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
         body.len()
     );
+    // One write for head and body: two small writes invite a stall on the second one.
+    let mut reply = Vec::with_capacity(headers.len() + body.len());
+    reply.extend_from_slice(headers.as_bytes());
+    reply.extend_from_slice(body.as_bytes());
     tokio::time::timeout(Duration::from_secs(10), async {
-        socket.write_all(headers.as_bytes()).await?;
-        socket.write_all(body.as_bytes()).await?;
+        socket.write_all(&reply).await?;
         socket.shutdown().await
     })
     .await??;
@@ -228,8 +249,8 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
     if method == "GET" && path == "/api/setup/status" {
         return Ok((
             200,
-            match app.selection() {
-                Ok(_) => json!({"configured":true}),
+            match app.configured() {
+                Ok(()) => json!({"configured":true}),
                 Err(e) => json!({"configured":false,"error":e.to_string()}),
             },
         ));
@@ -245,14 +266,35 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
             .trim()
             .to_lowercase();
         let password = body["password"].as_str().unwrap_or_default();
+        // Failed logins are limited per account. Asking first means a guesser is refused before
+        // any password is checked, and a correct password still works once the bucket refills.
+        // Only the account's own bucket is asked: the shared one is filled by token guessers and
+        // must never lock a real person out.
+        let account = format!("login:{email}");
+        if let Err(wait) = app.limit_open(crate::ratelimit::Kind::AuthFailure, &account) {
+            return Ok(too_many(wait));
+        }
         for user in config::docs(&app.db, "users")? {
             if user["email"] == email
                 && !email.is_empty()
                 && let Some(hash) = user["password_hash"].as_str()
                 && config::verify_password(password, hash)?
             {
-                return Ok((200, json!({"authToken":app.token})));
+                let id = config::string(&user, "id")?;
+                // The owner is the administrator and keeps the shared token (the desktop uses it);
+                // anyone else gets a token of their own, which reaches only what is theirs.
+                if id == app.owner_id()? {
+                    return Ok((200, json!({"authToken":app.token,"userId":id})));
+                }
+                return Ok((
+                    200,
+                    json!({"authToken":mint_session_token(app, id)?,"userId":id}),
+                ));
             }
+        }
+        // A failure is what is counted; success never is.
+        for key in [account.as_str(), "all"] {
+            let _ = app.limit(crate::ratelimit::Kind::AuthFailure, key);
         }
         return Ok((401, json!({"error":"Correo o contraseña incorrectos"})));
     }
@@ -261,8 +303,55 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "));
-    if !app.authorized(token)? {
+    let Some(principal) = app.authenticate(token)? else {
+        // Failing to authenticate is what a guesser does; slow it down (never a valid token).
+        if let Err(wait) = app.limit(crate::ratelimit::Kind::AuthFailure, "all") {
+            return Ok(too_many(wait));
+        }
         return Ok((401, json!({"error":"Acceso requerido"})));
+    };
+    if let Err(wait) = app.limit(crate::ratelimit::Kind::Api, &principal.user) {
+        return Ok(too_many(wait));
+    }
+    let user = principal.user.as_str();
+    if !principal.admin {
+        return user_route(app, user, method, path, &req);
+    }
+    if let Some(response) = user_token_route(app, method, path)? {
+        return Ok(response);
+    }
+    if let Some(response) = rate_limit_route(app, method, path, req.body())? {
+        return Ok(response);
+    }
+    if let Some(response) = tool_policy_route(
+        app,
+        method,
+        path,
+        req.uri().query().unwrap_or_default(),
+        req.body(),
+    )? {
+        return Ok(response);
+    }
+    if let Some(response) = crate::computer::route(app, method, path, req.body())? {
+        return Ok(response);
+    }
+    if let Some(response) = crate::oracle::route(app, method, path, req.body())? {
+        return Ok(response);
+    }
+    if let Some(response) = crate::ocr::route(app, method, path, req.body())? {
+        return Ok(response);
+    }
+    if let Some(response) = approval_route(app, &principal, method, path, req.body())? {
+        return Ok(response);
+    }
+    if let Some(response) = audit_route(
+        app,
+        &principal,
+        method,
+        path,
+        req.uri().query().unwrap_or_default(),
+    )? {
+        return Ok(response);
     }
     if let Some(response) = crate::integrations::route(
         app,
@@ -270,6 +359,7 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
         path,
         req.uri().query().unwrap_or_default(),
         req.body(),
+        user,
     )? {
         return Ok(response);
     }
@@ -285,6 +375,7 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
         path,
         req.uri().query().unwrap_or_default(),
         req.body(),
+        user,
     )? {
         return Ok(response);
     }
@@ -293,7 +384,7 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
     }
     if method == "GET"
         && let Some(response) =
-            crate::conversations::route(app, path, &query(req.uri().query().unwrap_or(""))?)?
+            crate::conversations::route(app, path, &query(req.uri().query().unwrap_or(""))?, user)?
     {
         return Ok(response);
     }
@@ -304,8 +395,6 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
         return Ok(response);
     }
     if method == "GET" && matches!(path, "/api/agents" | "/api/office") {
-        let users = config::docs(&app.db, "users")?;
-        let user = config::string(users.first().ok_or("Sin usuario")?, "id")?;
         return Ok((
             200,
             if path == "/api/agents" {
@@ -313,7 +402,7 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
             } else {
                 let _guard = app
                     .activity_lock
-                    .lock()
+                    .write()
                     .map_err(|_| "Actividad bloqueada")?;
                 activity::snapshot(&app.db, user)?
             },
@@ -327,39 +416,397 @@ fn route(app: &App, req: Request<Vec<u8>>) -> Result<(u16, Value)> {
         return Ok((200, json!(users)));
     }
     if method == "POST" && path == "/api/conversations" {
-        let selected = app.selection()?;
-        let peer = uuid::Uuid::new_v4().to_string();
-        let id = format!("{}/webchat/{peer}", selected.user);
-        let body: Value = serde_json::from_slice(req.body())?;
-        let title = body["title"]
-            .as_str()
-            .map(str::trim)
-            .filter(|title| !title.is_empty());
-        if title.is_some_and(|title| title.chars().count() > 160) {
-            return Ok((
-                400,
-                json!({"error":"El título admite hasta 160 caracteres"}),
-            ));
-        }
-        let row = json!({"id":id,"user_id":selected.user,"channel":"webchat","peer_id":peer,
-            "peer_kind":"direct","title":title,"archived":false,"created_at":now(),"last_message_at":now(),"message_count":0});
-        app.db.col_put(
-            "conversationThreads",
-            &id,
-            &row,
-            PutOptions {
-                expected_version: Some(0),
-            },
-        )?;
-        return Ok((
-            201,
-            json!({"conversation":crate::conversations::wire(&row)}),
-        ));
+        return create_conversation(app, user, req.body());
     }
     Ok((
         501,
         json!({"error":"Función no disponible en esta primera integración Rust","capabilities":CAPABILITIES}),
     ))
+}
+
+fn create_conversation(app: &App, user: &str, raw: &[u8]) -> Result<(u16, Value)> {
+    let selected = app.selection_for_user(user)?;
+    let peer = uuid::Uuid::new_v4().to_string();
+    let id = format!("{}/webchat/{peer}", selected.user);
+    let body: Value = serde_json::from_slice(raw)?;
+    let title = body["title"]
+        .as_str()
+        .map(str::trim)
+        .filter(|title| !title.is_empty());
+    if title.is_some_and(|title| title.chars().count() > 160) {
+        return Ok((
+            400,
+            json!({"error":"El título admite hasta 160 caracteres"}),
+        ));
+    }
+    let row = json!({"id":id,"user_id":selected.user,"channel":"webchat","peer_id":peer,
+        "peer_kind":"direct","title":title,"archived":false,"created_at":now(),"last_message_at":now(),"message_count":0});
+    app.db.col_put(
+        "conversationThreads",
+        &id,
+        &row,
+        PutOptions {
+            expected_version: Some(0),
+        },
+    )?;
+    Ok((
+        201,
+        json!({"conversation":crate::conversations::wire(&row)}),
+    ))
+}
+
+fn too_many(wait_ms: u64) -> (u16, Value) {
+    (
+        429,
+        json!({"error":"Demasiadas peticiones; espera un momento","retryAfterMs":wait_ms}),
+    )
+}
+
+/// Administrator-only: read, set or clear the rate limits. `PUT` takes
+/// `{"api_per_minute":120,"chat_per_minute":20,"channel_per_minute":6,"webhook_per_minute":120,"auth_failures_per_minute":30}`
+/// (each 1..=100000 or null for unlimited) and replaces the whole set; `DELETE` removes every limit.
+fn rate_limit_route(
+    app: &App,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<Option<(u16, Value)>> {
+    if path != "/api/rate-limits" {
+        return Ok(None);
+    }
+    let existing = app.db.col_get("rateLimits", "default")?;
+    Ok(Some(match method {
+        "GET" => (
+            200,
+            existing.map_or_else(
+                || crate::ratelimit::Config::default().to_json(),
+                |row| row.doc["limits"].clone(),
+            ),
+        ),
+        "PUT" => {
+            let limits: Value = serde_json::from_slice(body)?;
+            if let Err(reason) = crate::ratelimit::Config::from_json(&limits) {
+                return Ok(Some((400, json!({"error":reason}))));
+            }
+            app.db.col_put(
+                "rateLimits",
+                "default",
+                &json!({"id":"default","limits":limits}),
+                PutOptions {
+                    expected_version: Some(existing.map_or(0, |row| row.version)),
+                },
+            )?;
+            app.reload_rate_limits();
+            (200, json!({"ok":true}))
+        }
+        "DELETE" => {
+            if existing.is_some() {
+                app.db.col_batch(&[hivedb_core::ColOp::Delete {
+                    collection: "rateLimits".into(),
+                    id: "default".into(),
+                }])?;
+            }
+            app.reload_rate_limits();
+            (200, json!({"ok":true}))
+        }
+        _ => (405, json!({"error":"Método no permitido"})),
+    }))
+}
+
+/// Administrator-only: read, set or clear the tool policy applied to every turn.
+/// Body of PUT: `{"policy": {...}, "approval_timeout_ms": 120000}`; the policy is
+/// validated before it is stored, so an invalid one can never block or open anything.
+fn tool_policy_route(
+    app: &App,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &[u8],
+) -> Result<Option<(u16, Value)>> {
+    if path != "/api/tool-policy" {
+        return Ok(None);
+    }
+    // `?userId=` targets one user's own policy, which replaces the global one for them.
+    let target = query_user(query)?;
+    let key = match &target {
+        Some(user) => {
+            if !config::docs(&app.db, "users")?
+                .iter()
+                .any(|row| row["id"] == user.as_str())
+            {
+                return Ok(Some((404, json!({"error":"Usuario desconocido"}))));
+            }
+            format!("user:{user}")
+        }
+        None => "default".to_owned(),
+    };
+    let existing = app.db.col_get("toolPolicy", &key)?;
+    Ok(Some(match method {
+        "GET" => (
+            200,
+            json!({"policy":existing.as_ref().map(|row| row.doc["policy"].clone()),
+            "approval_timeout_ms":existing.as_ref().and_then(|row| row.doc["approval_timeout_ms"].as_u64()).unwrap_or(config::DEFAULT_APPROVAL_TIMEOUT_MS)}),
+        ),
+        "PUT" => {
+            let body: Value = serde_json::from_slice(body)?;
+            if let Err(error) =
+                hive_agent_core::policy::ToolPolicy::from_value(body["policy"].clone())
+            {
+                return Ok(Some((400, json!({"error":error.to_string()}))));
+            }
+            let timeout = body["approval_timeout_ms"]
+                .as_u64()
+                .unwrap_or(config::DEFAULT_APPROVAL_TIMEOUT_MS);
+            if !(1_000..=3_600_000).contains(&timeout) {
+                return Ok(Some((
+                    400,
+                    json!({"error":"approval_timeout_ms debe estar entre 1000 y 3600000"}),
+                )));
+            }
+            app.db.col_put(
+                "toolPolicy",
+                &key,
+                &json!({"id":key,"policy":body["policy"],"approval_timeout_ms":timeout}),
+                PutOptions {
+                    expected_version: Some(existing.map_or(0, |row| row.version)),
+                },
+            )?;
+            (200, json!({"ok":true}))
+        }
+        "DELETE" => {
+            if existing.is_some() {
+                app.db.col_batch(&[hivedb_core::ColOp::Delete {
+                    collection: "toolPolicy".into(),
+                    id: key,
+                }])?;
+            }
+            (200, json!({"ok":true}))
+        }
+        _ => (405, json!({"error":"Método no permitido"})),
+    }))
+}
+
+fn query_user(query: &str) -> Result<Option<String>> {
+    Ok(self::query(query)?
+        .get("userId")
+        .filter(|id| !id.is_empty())
+        .cloned())
+}
+
+/// `GET /api/tool-audit?limit=&before=&userId=`: the audit log of tool decisions, newest first.
+/// The administrator sees everyone's (and may filter by `userId`); a user sees only their own,
+/// whatever `userId` says. Arguments are never in it, only their hash.
+fn audit_route(
+    app: &App,
+    principal: &config::Principal,
+    method: &str,
+    path: &str,
+    query: &str,
+) -> Result<Option<(u16, Value)>> {
+    if path != "/api/tool-audit" {
+        return Ok(None);
+    }
+    if method != "GET" {
+        return Ok(Some((405, json!({"error":"Método no permitido"}))));
+    }
+    let params = self::query(query)?;
+    let limit = match params.get("limit").map(|v| v.parse::<usize>()) {
+        None => 50,
+        Some(Ok(value)) if (1..=500).contains(&value) => value,
+        _ => {
+            return Ok(Some((
+                400,
+                json!({"error":"limit debe estar entre 1 y 500"}),
+            )));
+        }
+    };
+    let user = if principal.admin {
+        query_user(query)?
+    } else {
+        Some(principal.user.clone())
+    };
+    let entries = app.list_audit(
+        user.as_deref(),
+        limit,
+        params.get("before").map(String::as_str),
+    )?;
+    let next = (entries.len() == limit)
+        .then(|| {
+            entries
+                .last()
+                .and_then(|e| e["id"].as_str().map(str::to_owned))
+        })
+        .flatten();
+    Ok(Some((200, json!({"entries":entries,"next":next}))))
+}
+
+/// `POST /api/approvals/{id}` with `{"approved": true|false}`: the REST twin of the
+/// WebSocket `approval` message.
+fn approval_route(
+    app: &App,
+    principal: &config::Principal,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<Option<(u16, Value)>> {
+    let Some(id) = path.strip_prefix("/api/approvals/") else {
+        return Ok(None);
+    };
+    if method != "POST" {
+        return Ok(Some((405, json!({"error":"Método no permitido"}))));
+    }
+    let body: Value = serde_json::from_slice(body)?;
+    Ok(Some(
+        if app.resolve_approval(&decode(id)?, principal, body["approved"] == true)? {
+            (200, json!({"ok":true}))
+        } else {
+            (404, json!({"error":"Aprobación desconocida o ya resuelta"}))
+        },
+    ))
+}
+
+/// Administrator-only: issue or revoke a user's own token. A token is shown once and only
+/// its SHA-256 is stored (`users.api_token_hash`); issuing again replaces the old one.
+/// How many session tokens a user may hold at once; the oldest is dropped past that.
+const MAX_SESSION_TOKENS: usize = 5;
+
+/// A new token for `user`, added to the ones they already hold (a login on another device must
+/// not end this one). Only its hash is stored.
+fn mint_session_token(app: &App, user: &str) -> Result<String> {
+    let token = format!(
+        "hvu_{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
+    let row = app
+        .db
+        .col_get("users", user)?
+        .ok_or("Usuario desconocido")?;
+    let mut doc = row.doc;
+    let mut hashes: Vec<Value> = doc["session_token_hashes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    hashes.push(json!(App::hash_token(&token)));
+    let extra = hashes.len().saturating_sub(MAX_SESSION_TOKENS);
+    hashes.drain(..extra);
+    doc["session_token_hashes"] = json!(hashes);
+    app.db.col_put(
+        "users",
+        user,
+        &doc,
+        PutOptions {
+            expected_version: Some(row.version),
+        },
+    )?;
+    Ok(token)
+}
+
+fn user_token_route(app: &App, method: &str, path: &str) -> Result<Option<(u16, Value)>> {
+    let Some(id) = path
+        .strip_prefix("/api/users/")
+        .and_then(|rest| rest.strip_suffix("/token"))
+    else {
+        return Ok(None);
+    };
+    if !matches!(method, "POST" | "DELETE") {
+        return Ok(Some((405, json!({"error":"Método no permitido"}))));
+    }
+    let id = decode(id)?;
+    let Some(row) = app.db.col_get("users", &id)? else {
+        return Ok(Some((404, json!({"error":"Usuario desconocido"}))));
+    };
+    let mut doc = row.doc;
+    let issued = (method == "POST").then(|| {
+        format!(
+            "hvu_{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        )
+    });
+    doc["api_token_hash"] = match &issued {
+        Some(token) => json!(App::hash_token(token)),
+        None => json!(null),
+    };
+    // Replacing or revoking the token also ends every session a password login started.
+    doc["session_token_hashes"] = json!([]);
+    app.db.col_put(
+        "users",
+        &id,
+        &doc,
+        PutOptions {
+            expected_version: Some(row.version),
+        },
+    )?;
+    Ok(Some(match issued {
+        Some(token) => (200, json!({"userId":id,"token":token})),
+        None => (200, json!({"userId":id,"revoked":true})),
+    }))
+}
+
+/// What a per-user token may reach: that user's own conversations, scheduled tasks, notes,
+/// canvas surfaces, agents and activity. Anything else (providers, channels, tools, skills,
+/// MCP, ethics, settings, other users, HTTP egress, voice, dashboards, meetings) needs the
+/// administrator token and is refused, not silently scoped.
+fn user_route(
+    app: &App,
+    user: &str,
+    method: &str,
+    path: &str,
+    req: &Request<Vec<u8>>,
+) -> Result<(u16, Value)> {
+    let own = path == "/api/conversations"
+        || path == "/api/chat/history"
+        || path == "/api/notes"
+        || path.starts_with("/api/cron")
+        || path.starts_with("/api/approvals/")
+        || path == "/api/tool-audit"
+        || path.starts_with("/api/a2ui/surfaces")
+        || (method == "GET" && matches!(path, "/api/agents" | "/api/office" | "/api/users"));
+    if !own {
+        return Ok((403, json!({"error":"Requiere el token de administrador"})));
+    }
+    let query_text = req.uri().query().unwrap_or_default();
+    if let Some(response) =
+        crate::integrations::route(app, method, path, query_text, req.body(), user)?
+    {
+        return Ok(response);
+    }
+    if method == "GET"
+        && let Some(response) = crate::conversations::route(app, path, &query(query_text)?, user)?
+    {
+        return Ok(response);
+    }
+    let principal = config::Principal {
+        user: user.to_owned(),
+        admin: false,
+    };
+    if let Some(response) = approval_route(app, &principal, method, path, req.body())? {
+        return Ok(response);
+    }
+    if let Some(response) = audit_route(app, &principal, method, path, query_text)? {
+        return Ok(response);
+    }
+    // The same handlers the administrator uses, acting as this user: the user's own
+    // profile and agents come from `management`, which filters by the acting user.
+    if method == "GET"
+        && matches!(path, "/api/users" | "/api/agents")
+        && let Some(response) =
+            crate::management::route(app, method, path, query_text, req.body(), user)?
+    {
+        return Ok(response);
+    }
+    match (method, path) {
+        ("GET", "/api/office") => {
+            let _guard = app
+                .activity_lock
+                .write()
+                .map_err(|_| "Actividad bloqueada")?;
+            Ok((200, activity::snapshot(&app.db, user)?))
+        }
+        ("POST", "/api/conversations") => create_conversation(app, user, req.body()),
+        _ => Ok((404, json!({"error":"Ruta desconocida"}))),
+    }
 }
 
 pub(crate) fn query(raw: &str) -> Result<std::collections::HashMap<String, String>> {
@@ -453,10 +900,29 @@ async fn websocket<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                 };
                 let mut value: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => continue };
                 if value["type"]=="a2ui:action" {
+                    // An answer to an approval is the gateway's to resolve; it never becomes a prompt.
+                    match crate::panel::approval_action(&value["data"]) {
+                        crate::panel::ApprovalAction::Answer(id, approved) => {
+                            let principal = config::Principal { user: user.clone(), admin: false };
+                            if !app.resolve_approval(&id, &principal, approved)? {
+                                send_error(&output, "Aprobación desconocida o ya resuelta").await;
+                            }
+                            continue;
+                        }
+                        crate::panel::ApprovalAction::Invalid => {
+                            send_error(&output, "Respuesta de aprobación no válida").await;
+                            continue;
+                        }
+                        crate::panel::ApprovalAction::NotApproval => {}
+                    }
                     match crate::panel::action(&app,&user,&value["data"]) {Ok((thread,prompt))=>value=json!({"type":"message","threadId":thread,"content":prompt}),Err(e)=>{send_error(&output,&e.to_string()).await;continue;}}
                 }
                 match value["type"].as_str() {
                     Some("message") => {
+                        if app.limit(crate::ratelimit::Kind::Chat, &user).is_err() {
+                            send_error(&output, "Estás enviando mensajes muy rápido; espera un momento").await;
+                            continue;
+                        }
                         let thread = value["threadId"].as_str().unwrap_or_default().to_owned();
                         let prompt = value["content"].as_str().unwrap_or_default().to_owned();
                         if prompt.trim().is_empty() { send_thread_error(&output,"Mensaje vacío",Some(&thread)).await; continue; }
@@ -476,6 +942,13 @@ async fn websocket<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
                         let thread = value["threadId"].as_str().unwrap_or_default();
                         if crate::conversations::owned(&app,thread,&user)?
                             && let Some(token) = app.active.lock().map_err(|_| "Turnos bloqueados")?.get(thread) { token.cancel(); }
+                    }
+                    Some("approval") => {
+                        let principal = config::Principal { user: user.clone(), admin: false };
+                        let id = value["approvalId"].as_str().unwrap_or_default();
+                        if !app.resolve_approval(id, &principal, value["approved"] == true)? {
+                            send_error(&output, "Aprobación desconocida o ya resuelta").await;
+                        }
                     }
                     Some("canvas_subscribe") => {
                         while office.try_recv().is_ok() {}
@@ -511,8 +984,9 @@ pub(crate) fn start_live_work(
     thread: String,
     prompt: String,
     delivery: mpsc::Sender<Value>,
+    forward_approvals: bool,
 ) -> Result<String> {
-    if !crate::conversations::owned(&app, &thread, &user)? {
+    if !crate::conversations::runnable(&app, &thread, &user)? {
         return Err("Conversación desconocida".into());
     }
     let cancel = app.shutdown.child_token();
@@ -538,7 +1012,13 @@ pub(crate) fn start_live_work(
         let result = loop {
             tokio::select! {
                 frame=receiver.recv(),if open=>match frame {
-                    Some(frame)=>if frame["type"]=="message" && frame["isChunk"]!=true {answer=frame["content"].as_str().unwrap_or_default().to_owned();},
+                    Some(frame)=>if frame["type"]=="message" && frame["isChunk"]!=true {
+                        answer=frame["content"].as_str().unwrap_or_default().to_owned();
+                    } else if forward_approvals && frame["type"]=="approval_request" {
+                        // A channel has no WebSocket: whoever asked for the turn relays the question
+                        // to the person (see `channels::ask_agent`).
+                        let _ = tokio::time::timeout(Duration::from_secs(2), delivery.send(frame)).await;
+                    },
                     None=>open=false,
                 },
                 result=&mut execution=>break result,
@@ -586,7 +1066,7 @@ async fn turn(
     let thread_id = thread.to_owned();
     let user_id = user.to_owned();
     let (selected, handle) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let selected = host.selection()?;
+        let selected = host.selection_for_user(&user_id)?;
         if selected.user != user_id {
             return Err("Usuario no accesible".into());
         }
@@ -646,6 +1126,8 @@ struct RunContext {
     parent: Option<String>,
     depth: u32,
     objective_id: String,
+    /// Pictures that came with the message (from a channel), as attachment objects.
+    attachments: Vec<Value>,
 }
 
 async fn drive_turn<P: TurnProvider>(
@@ -653,14 +1135,28 @@ async fn drive_turn<P: TurnProvider>(
     handle: Arc<DurableEngineHandle>,
     provider: P,
     thread: &str,
-    prompt: String,
+    mut prompt: String,
     output: mpsc::Sender<Value>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let db = app.clone();
-    let (actor, policy, provider_id, model_id) =
+    let thread_id = thread.to_owned();
+    let (actor, policy, provider_id, model_id, attachments, unseen) =
         tokio::task::spawn_blocking(move || -> Result<_> {
-            let selected = db.selection()?;
+            // Pictures a channel left for this turn: taken first, so they never wait for a later one.
+            let taken = db
+                .turn_attachments
+                .lock()
+                .ok()
+                .and_then(|mut all| all.remove(&thread_id))
+                .unwrap_or_default();
+            // The turn runs as the conversation's owner, never as "the first user".
+            let owner = db
+                .db
+                .col_get("conversationThreads", &thread_id)?
+                .and_then(|row| row.doc["user_id"].as_str().map(str::to_owned))
+                .ok_or("Conversación inexistente")?;
+            let selected = db.selection_for_user(&owner)?;
             let user = &selected.user;
             let agents = config::docs(&db.db, "agents")?;
             let actor = selected.agent;
@@ -668,18 +1164,45 @@ async fn drive_turn<P: TurnProvider>(
                 .iter()
                 .filter(|agent| config::enabled_worker(agent, user))
                 .count();
-            let policy = config::turn_policy(&actor, workers)?;
-            Ok((actor, policy, selected.provider_id, selected.model_id))
+            let policy = crate::oracle::with_review_budget(
+                config::with_computer_budget(
+                    config::turn_policy(&actor, workers)?,
+                    db.computer_extra_calls(),
+                ),
+                db.oracle_corrections(),
+            );
+            // Only a model that can see is given pictures; the others are told there were some.
+            let sees = config::docs(&db.db, "models")?
+                .iter()
+                .find(|m| m["id"] == selected.model_id.as_str())
+                .is_some_and(|row| crate::model_catalog::supports(row, "vision"));
+            let (attachments, unseen) = if sees {
+                (taken, 0)
+            } else {
+                (vec![], taken.len())
+            };
+            Ok((
+                actor,
+                policy,
+                selected.provider_id,
+                selected.model_id,
+                attachments,
+                unseen,
+            ))
         })
         .await??;
+    if unseen > 0 {
+        prompt.push_str(&format!(
+            "\n\n(La persona adjuntó {unseen} imagen(es), pero el modelo actual no puede verlas: dilo y pide que las describa.)"
+        ));
+    }
     let objective_id = format!("gateway.turn.{}", uuid::Uuid::new_v4());
     let host = app.clone();
     let root_id = objective_id.clone();
+    let turn_user = config::string(&actor, "user_id")?.to_owned();
+    let store_user = turn_user.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let guard = host.store.lock().map_err(|_| "Store bloqueado")?;
-        guard
-            .as_ref()
-            .ok_or("Store cerrado")?
+        host.store_handle(&store_user)?
             .open_objective(&root_id, policy)?;
         Ok(())
     })
@@ -687,13 +1210,14 @@ async fn drive_turn<P: TurnProvider>(
     let context = RunContext {
         provider_id,
         model_id,
-        user: config::string(&actor, "user_id")?.to_owned(),
+        user: turn_user.clone(),
         actor,
         thread: thread.to_owned(),
         root: None,
         parent: None,
         depth: 0,
         objective_id,
+        attachments,
     };
     let root_id = context.objective_id.clone();
     let result = run_engine(
@@ -708,16 +1232,344 @@ async fn drive_turn<P: TurnProvider>(
     .await;
     if cancel.is_cancelled() {
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let guard = app.store.lock().map_err(|_| "Store bloqueado")?;
-            guard
-                .as_ref()
-                .ok_or("Store cerrado")?
+            app.store_handle(&turn_user)?
                 .objective_command(&root_id, r#"{"op":"cancel"}"#)?;
             Ok(())
         })
         .await??;
     }
     result.map(|_| ())
+}
+
+/// Apply the administrator's tool policy to one call, before it is claimed. `None` means
+/// go ahead. A denial, a refused or unanswered approval, or an unreadable policy all say
+/// no, with a reason the model can read. An `ask` is shown to the person whose turn this
+/// is (over their WebSocket) and waits for their answer, the turn's cancellation or the
+/// timeout, whichever comes first.
+/// Record a tool decision in the audit log. Failing to write it never changes the decision.
+async fn audit(
+    app: &Arc<App>,
+    context: &RunContext,
+    call: &hive_agent_core::ToolCall,
+    decision: &'static str,
+    rule: Option<usize>,
+    reason: &str,
+    source: &'static str,
+) {
+    let (host, user, thread, tool, arguments, reason) = (
+        app.clone(),
+        context.user.clone(),
+        context.thread.clone(),
+        call.name.clone(),
+        call.arguments.clone(),
+        reason.to_owned(),
+    );
+    let _ = tokio::task::spawn_blocking(move || {
+        host.audit_tool(&config::AuditEntry {
+            user: &user,
+            thread: &thread,
+            tool: &tool,
+            arguments: &arguments,
+            decision,
+            rule,
+            reason: &reason,
+            source,
+        })
+    })
+    .await;
+}
+
+/// Pointer and keyboard actions: the policy's `deny` rules still apply, and otherwise a person
+/// approves once per conversation, which then holds for the configured minutes. An `ask` rule is
+/// satisfied by that approval too, so nobody is asked for every click.
+/// What one kind of tool that needs a once-per-conversation approval says about itself.
+struct SessionApproval {
+    /// Has this conversation already been approved, and is it still valid?
+    live: bool,
+    /// What the person is told they are approving.
+    reason: String,
+    /// Remember the approval for this conversation.
+    grant: Box<dyn FnOnce() + Send>,
+}
+
+fn session_approval(
+    app: &Arc<App>,
+    context: &RunContext,
+    call: &hive_agent_core::ToolCall,
+) -> Option<SessionApproval> {
+    let (user, thread) = (context.user.clone(), context.thread.clone());
+    if crate::computer::is_input(&call.name) {
+        let minutes = app.computer_settings().map_or(10, |s| s.session_minutes);
+        let host = app.clone();
+        return Some(SessionApproval {
+            live: app.computer_grant_live(&user, &thread),
+            reason: format!(
+                "Control del escritorio: al aprobar, el asistente podrá usar el ratón y el teclado en esta conversación durante {minutes} minutos"
+            ),
+            grant: Box::new(move || host.computer_grant(&user, &thread)),
+        });
+    }
+    if call.name == crate::ocr::TOOL {
+        let settings = app.ocr_settings().ok()?;
+        if !settings.ask {
+            return None;
+        }
+        let host = app.clone();
+        let file = call.arguments["path"]
+            .as_str()
+            .unwrap_or("un documento")
+            .chars()
+            .take(120)
+            .collect::<String>();
+        return Some(SessionApproval {
+            live: app.ocr_grant_live(&user, &thread),
+            reason: format!(
+                "Lectura de documentos (OCR): al aprobar, «{file}» y los documentos que lea después en esta conversación se enviarán a {} durante {} minutos",
+                crate::ocr::provider_label(app),
+                settings.session_minutes
+            ),
+            grant: Box::new(move || host.ocr_grant(&user, &thread)),
+        });
+    }
+    None
+}
+
+async fn authorize_session(
+    app: &Arc<App>,
+    context: &RunContext,
+    call: &hive_agent_core::ToolCall,
+    output: &mpsc::Sender<Value>,
+    cancel: &CancellationToken,
+    session: SessionApproval,
+) -> Result<Option<String>> {
+    let host = app.clone();
+    let owner = context.user.clone();
+    let (timeout_ms, source, rule) =
+        match tokio::task::spawn_blocking(move || host.tool_policy_for(&owner)).await? {
+            Ok(None) => (config::DEFAULT_APPROVAL_TIMEOUT_MS, "default", None),
+            Ok(Some((stored, source))) => {
+                let verdict = stored.policy.evaluate(&call.name, &call.arguments);
+                if matches!(verdict.decision, hive_agent_core::policy::Decision::Deny) {
+                    audit(
+                        app,
+                        context,
+                        call,
+                        "deny",
+                        verdict.rule,
+                        &verdict.reason,
+                        source,
+                    )
+                    .await;
+                    return Ok(Some(format!("POLICY_DENIED: {}", verdict.reason)));
+                }
+                (stored.approval_timeout_ms, source, verdict.rule)
+            }
+            Err(_) => {
+                let reason =
+                    "POLICY_UNAVAILABLE: the tool policy could not be read, so tools are blocked";
+                audit(
+                    app,
+                    context,
+                    call,
+                    "policy_unreadable",
+                    None,
+                    reason,
+                    "unknown",
+                )
+                .await;
+                return Ok(Some(reason.into()));
+            }
+        };
+    if session.live {
+        audit(
+            app,
+            context,
+            call,
+            "allow",
+            rule,
+            "aprobado para esta conversación",
+            source,
+        )
+        .await;
+        return Ok(None);
+    }
+    let outcome = request_approval(
+        app,
+        context,
+        call,
+        output,
+        cancel,
+        &session.reason,
+        rule,
+        source,
+        timeout_ms,
+    )
+    .await?;
+    if outcome.is_none() {
+        (session.grant)();
+    }
+    Ok(outcome)
+}
+
+async fn authorize_tool(
+    app: &Arc<App>,
+    context: &RunContext,
+    call: &hive_agent_core::ToolCall,
+    output: &mpsc::Sender<Value>,
+    cancel: &CancellationToken,
+) -> Result<Option<String>> {
+    if let Some(session) = session_approval(app, context, call) {
+        return authorize_session(app, context, call, output, cancel, session).await;
+    }
+    let host = app.clone();
+    let owner = context.user.clone();
+    let (stored, source) =
+        match tokio::task::spawn_blocking(move || host.tool_policy_for(&owner)).await? {
+            Ok(None) => return Ok(None),
+            Ok(Some(found)) => found,
+            Err(_) => {
+                let reason =
+                    "POLICY_UNAVAILABLE: the tool policy could not be read, so tools are blocked";
+                audit(
+                    app,
+                    context,
+                    call,
+                    "policy_unreadable",
+                    None,
+                    reason,
+                    "unknown",
+                )
+                .await;
+                return Ok(Some(reason.into()));
+            }
+        };
+    let verdict = stored.policy.evaluate(&call.name, &call.arguments);
+    match verdict.decision {
+        hive_agent_core::policy::Decision::Allow => {
+            audit(
+                app,
+                context,
+                call,
+                "allow",
+                verdict.rule,
+                &verdict.reason,
+                source,
+            )
+            .await;
+            return Ok(None);
+        }
+        hive_agent_core::policy::Decision::Deny => {
+            audit(
+                app,
+                context,
+                call,
+                "deny",
+                verdict.rule,
+                &verdict.reason,
+                source,
+            )
+            .await;
+            return Ok(Some(format!("POLICY_DENIED: {}", verdict.reason)));
+        }
+        hive_agent_core::policy::Decision::Ask => {}
+    }
+    return request_approval(
+        app,
+        context,
+        call,
+        output,
+        cancel,
+        &verdict.reason,
+        verdict.rule,
+        source,
+        stored.approval_timeout_ms,
+    )
+    .await;
+}
+
+/// Ask a person whether a tool call may run, in the same chat (WebSocket request plus an A2UI
+/// surface), and wait. `Ok(None)` means approved; `Ok(Some(why))` is the refusal the model is told.
+#[allow(clippy::too_many_arguments)]
+async fn request_approval(
+    app: &Arc<App>,
+    context: &RunContext,
+    call: &hive_agent_core::ToolCall,
+    output: &mpsc::Sender<Value>,
+    cancel: &CancellationToken,
+    reason: &str,
+    rule: Option<usize>,
+    source: &'static str,
+    timeout_ms: u64,
+) -> Result<Option<String>> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let (answer, response) = tokio::sync::oneshot::channel();
+    app.approvals
+        .lock()
+        .map_err(|_| "Aprobaciones bloqueadas")?
+        .insert(
+            id.clone(),
+            config::PendingApproval {
+                user: context.user.clone(),
+                answer,
+            },
+        );
+    let forget = |app: &App| {
+        if let Ok(mut pending) = app.approvals.lock() {
+            pending.remove(&id);
+        }
+    };
+    if output
+        .send(json!({"type":"approval_request","threadId":context.thread,"approvalId":id,"tool":call.name,
+            "arguments":call.arguments,"reason":reason,"expiresInMs":timeout_ms}))
+        .await
+        .is_err()
+    {
+        forget(app);
+        audit(app, context, call, "ask_unavailable", rule, reason, source).await;
+        return Ok(Some("APPROVAL_UNAVAILABLE: nobody is connected to approve this call".into()));
+    }
+    // The same question inside the chat, as an A2UI surface with two buttons, for clients that
+    // draw A2UI (the answer comes back as an `a2ui:action` handled by the gateway). The
+    // request above stays for clients that answer it directly.
+    for frame in crate::panel::approval_frames(
+        &id,
+        &context.thread,
+        &call.name,
+        &call.arguments,
+        reason,
+        timeout_ms,
+    ) {
+        let _ = output.send(frame).await;
+    }
+    let outcome = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            forget(app);
+            let _ = output.send(crate::panel::approval_removal(&id, &context.thread)).await;
+            audit(app, context, call, "ask_cancelled", rule, reason, source).await;
+            return Err("Turno cancelado esperando una aprobación".into());
+        }
+        answer = tokio::time::timeout(Duration::from_millis(timeout_ms), response) => answer,
+    };
+    forget(app);
+    // Answered, refused or timed out: the question is over, so the surface goes away.
+    let _ = output
+        .send(crate::panel::approval_removal(&id, &context.thread))
+        .await;
+    let label = match &outcome {
+        Ok(Ok(true)) => "ask_approved",
+        Ok(Ok(false)) => "ask_refused",
+        _ => "ask_timeout",
+    };
+    audit(app, context, call, label, rule, reason, source).await;
+    Ok(match outcome {
+        Ok(Ok(true)) => None,
+        Ok(Ok(false)) => Some(format!("POLICY_DENIED: approval refused ({})", reason)),
+        _ => Some(format!(
+            "APPROVAL_TIMEOUT: nobody approved in time ({})",
+            reason
+        )),
+    })
 }
 
 fn run_engine<P: TurnProvider>(
@@ -735,7 +1587,7 @@ fn run_engine<P: TurnProvider>(
         }
         let frame = dispatch(
             &handle,
-            json!({"op":"begin_run","prompt":prompt,
+            json!({"op":"begin_run","prompt":if context.attachments.is_empty() { json!(prompt) } else { json!({"text":prompt,"attachments":context.attachments}) },
             "objective_id":context.objective_id,"objective_depth":context.depth}),
         )
         .await?;
@@ -825,6 +1677,7 @@ async fn run_loop<P: TurnProvider>(
                 .await?,
         )
         .await?;
+    let prompt_for_review: String = prompt.chars().take(2000).collect();
     if context.depth == 0 {
         record(
             app.clone(),
@@ -835,6 +1688,12 @@ async fn run_loop<P: TurnProvider>(
         )
         .await?;
     }
+    // What the tools returned this turn and how often the oracle has sent the answer back: both only
+    // matter for the coordinator's final answer (see `crate::oracle`).
+    let mut evidence: Vec<Value> = vec![];
+    let mut corrections = 0u32;
+    let mut draft: Option<String> = None;
+    let mut request_text = prompt_for_review;
     loop {
         let action: Action = serde_json::from_value(frame["action"].clone())?;
         match action {
@@ -925,6 +1784,20 @@ async fn run_loop<P: TurnProvider>(
                 if cancel.is_cancelled() {
                     return Err("Turno cancelado antes de ejecutar la herramienta".into());
                 }
+                if let Some(reason) = authorize_tool(&app, context, &call, output, cancel).await? {
+                    // Not run. The operation is claimed and closed in one step so the turn
+                    // moves on, and the model is told why like any tool error.
+                    frame = dispatch(&handle, json!({"op":"claim"})).await?;
+                    let execution_id =
+                        config::string(&frame["operation"], "execution_id")?.to_owned();
+                    frame = dispatch(
+                        &handle,
+                        json!({"op":"advance","execution_id":execution_id,
+                            "outcome":{"type":"tool","result":{"ok":false,"error":reason}}}),
+                    )
+                    .await?;
+                    continue;
+                }
                 if call.name.starts_with("a2ui_") && context.depth == 0 {
                     frame = dispatch(&handle, json!({"op":"claim"})).await?;
                     let execution_id =
@@ -978,6 +1851,168 @@ async fn run_loop<P: TurnProvider>(
                     frame=dispatch(&handle,json!({"op":"advance","execution_id":execution_id,"outcome":{"type":"tool","result":result}})).await?;
                     continue;
                 }
+                // Reading a document (OCR), for the coordinator only: approved above when the settings
+                // ask for it, claimed first and run once.
+                if call.name == crate::ocr::TOOL && context.depth == 0 {
+                    frame = dispatch(&handle, json!({"op":"claim"})).await?;
+                    let execution_id =
+                        config::string(&frame["operation"], "execution_id")?.to_owned();
+                    output
+                        .send(
+                            progress
+                                .emit(
+                                    &format!("{}:call", call.id),
+                                    "tool_start",
+                                    "thinking",
+                                    "running",
+                                    "Leyendo un documento",
+                                    Some(call.name.clone()),
+                                )
+                                .await?,
+                        )
+                        .await?;
+                    let result = crate::ocr::execute(&app, call.arguments.clone(), cancel).await;
+                    evidence.push(crate::oracle::evidence(&call.name, &result));
+                    output
+                        .send(
+                            progress
+                                .emit(
+                                    &format!("{}:result", call.id),
+                                    "tool_result",
+                                    "thinking",
+                                    if result["ok"] == true {
+                                        "done"
+                                    } else {
+                                        "error"
+                                    },
+                                    if result["ok"] == true {
+                                        "Documento leído"
+                                    } else {
+                                        "No se pudo leer el documento"
+                                    },
+                                    result["error"].as_str().map(str::to_owned),
+                                )
+                                .await?,
+                        )
+                        .await?;
+                    frame = dispatch(
+                        &handle,
+                        json!({"op":"advance","execution_id":execution_id,"outcome":{"type":"tool","result":result}}),
+                    )
+                    .await?;
+                    continue;
+                }
+                // Desktop control, for the coordinator only. Approved above (once per conversation for
+                // pointer and keyboard); claimed first and never retried, since a click cannot be undone.
+                if call.name.starts_with(crate::computer::PREFIX) && context.depth == 0 {
+                    frame = dispatch(&handle, json!({"op":"claim"})).await?;
+                    let execution_id =
+                        config::string(&frame["operation"], "execution_id")?.to_owned();
+                    output
+                        .send(
+                            progress
+                                .emit(
+                                    &format!("{}:call", call.id),
+                                    "tool_start",
+                                    "thinking",
+                                    "running",
+                                    "Usando el escritorio",
+                                    Some(call.name.clone()),
+                                )
+                                .await?,
+                        )
+                        .await?;
+                    let result =
+                        crate::computer::execute(&app, &call.name, call.arguments.clone(), cancel)
+                            .await;
+                    evidence.push(crate::oracle::evidence(&call.name, &result));
+                    output
+                        .send(
+                            progress
+                                .emit(
+                                    &format!("{}:result", call.id),
+                                    "tool_result",
+                                    "thinking",
+                                    if result["ok"] == true {
+                                        "done"
+                                    } else {
+                                        "error"
+                                    },
+                                    if result["ok"] == true {
+                                        "Acción de escritorio realizada"
+                                    } else {
+                                        "La acción de escritorio no se completó"
+                                    },
+                                    result["error"].as_str().map(str::to_owned),
+                                )
+                                .await?,
+                        )
+                        .await?;
+                    frame = dispatch(
+                        &handle,
+                        json!({"op":"advance","execution_id":execution_id,"outcome":{"type":"tool","result":result}}),
+                    )
+                    .await?;
+                    continue;
+                }
+                // A tool of an MCP server (the policy already had its say above). Claimed first, run once,
+                // never retried: its outcome may be unknown, and it may have sent an email.
+                if call.name.starts_with(crate::mcp_servers::TOOL_PREFIX)
+                    && context.depth == 0
+                    && let Some((server, tool)) = crate::mcp_servers::resolve(&app, &call.name)
+                {
+                    frame = dispatch(&handle, json!({"op":"claim"})).await?;
+                    let execution_id =
+                        config::string(&frame["operation"], "execution_id")?.to_owned();
+                    output
+                        .send(
+                            progress
+                                .emit(
+                                    &format!("{}:call", call.id),
+                                    "tool_start",
+                                    "thinking",
+                                    "running",
+                                    &format!("Consultando el servidor MCP «{server}»"),
+                                    Some(tool.clone()),
+                                )
+                                .await?,
+                        )
+                        .await?;
+                    let result = tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => return Err("Turno cancelado durante una herramienta MCP".into()),
+                        result = crate::mcp_servers::execute(&app, &server, &tool, call.arguments.clone()) => result,
+                    };
+                    evidence.push(crate::oracle::evidence(&call.name, &result));
+                    output
+                        .send(
+                            progress
+                                .emit(
+                                    &format!("{}:result", call.id),
+                                    "tool_result",
+                                    "thinking",
+                                    if result["ok"] == true {
+                                        "done"
+                                    } else {
+                                        "error"
+                                    },
+                                    if result["ok"] == true {
+                                        "El servidor MCP respondió"
+                                    } else {
+                                        "El servidor MCP no completó la acción"
+                                    },
+                                    result["error"].as_str().map(str::to_owned),
+                                )
+                                .await?,
+                        )
+                        .await?;
+                    frame = dispatch(
+                        &handle,
+                        json!({"op":"advance","execution_id":execution_id,"outcome":{"type":"tool","result":result}}),
+                    )
+                    .await?;
+                    continue;
+                }
                 if !matches!(call.name.as_str(), "task_delegate" | "task_delegate_group")
                     || context.depth != 0
                 {
@@ -988,6 +2023,7 @@ async fn run_loop<P: TurnProvider>(
                 }
                 frame = dispatch(&handle, json!({"op":"claim"})).await?;
                 let execution_id = config::string(&frame["operation"], "execution_id")?.to_owned();
+                let tool_name = call.name.clone();
                 let result = delegation::execute(
                     app.clone(),
                     provider.clone(),
@@ -999,6 +2035,7 @@ async fn run_loop<P: TurnProvider>(
                     cancel.clone(),
                 )
                 .await?;
+                evidence.push(crate::oracle::evidence(&tool_name, &result));
                 frame = dispatch(
                     &handle,
                     json!({"op":"advance","execution_id":execution_id,
@@ -1025,6 +2062,64 @@ async fn run_loop<P: TurnProvider>(
             }
             Action::Complete { content, .. } => {
                 dispatch(&handle, json!({"op":"commit"})).await?;
+                // The coordinator's answer may be sent back to be corrected before the person sees it.
+                if context.depth == 0 && !cancel.is_cancelled() {
+                    // The oracle is judged by what the model does with its advice: an unchanged
+                    // answer after a correction means the advice was not needed.
+                    if let Some(previous) = draft.take()
+                        && let Ok(Some((oracle, _))) = app.oracle_client()
+                    {
+                        if previous.trim() == content.trim() {
+                            let _ = oracle
+                                .record_overruled("the answer did not change after a correction");
+                        } else {
+                            let _ = oracle.record_agreement();
+                        }
+                    }
+                    if corrections < app.oracle_corrections() {
+                        let verdict = crate::oracle::review(
+                            &app,
+                            &context.user,
+                            &context.objective_id,
+                            hive_agent_core::oracle::review::ReviewInput {
+                                request: request_text.clone(),
+                                answer: content.clone(),
+                                evidence: evidence.clone(),
+                            },
+                            cancel,
+                        )
+                        .await;
+                        if let hive_agent_core::oracle::review::Verdict::Revise { reason } = verdict
+                        {
+                            corrections += 1;
+                            draft = Some(content.clone());
+                            let correction =
+                                hive_agent_core::oracle::review::correction_prompt(&reason);
+                            output
+                                .send(
+                                    progress
+                                        .emit(
+                                            &format!("review:{corrections}"),
+                                            "tool_result",
+                                            "thinking",
+                                            "running",
+                                            "Revisando la respuesta antes de entregarla",
+                                            None,
+                                        )
+                                        .await?,
+                                )
+                                .await?;
+                            frame = dispatch(
+                                &handle,
+                                json!({"op":"begin_run","prompt":correction,
+                                    "objective_id":context.objective_id,"objective_depth":context.depth}),
+                            )
+                            .await?;
+                            request_text = format!("{request_text}\n(Corrección pedida: {reason})");
+                            continue;
+                        }
+                    }
+                }
                 if context.depth == 0 {
                     record(
                         app.clone(),
@@ -1090,7 +2185,7 @@ pub(crate) async fn record_tagged(
     source: &'static str,
 ) -> Result<()> {
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let _guard = app.activity_lock.lock().map_err(|_|"Actividad bloqueada")?;
+        let _guard = app.activity_lock.write().map_err(|_|"Actividad bloqueada")?;
         if app.db.col_get("hive_sdk_rust_message_links_v1",&id)?.is_some() { return Ok(()); }
         let at = now();
         let counter_id = format!("conversations:{thread}");

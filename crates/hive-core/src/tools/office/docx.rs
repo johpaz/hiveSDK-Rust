@@ -1,4 +1,9 @@
-//! Word (.docx): text and tables out, headings, lists and tables in.
+//! Word (.docx): text and tables out, headings, lists, tables, a header and a footer in.
+//!
+//! A header or footer is one paragraph of text, aligned left, centre or right, in which `{page}`,
+//! `{pages}` and `{title}` become the page number, the page count (live fields Word updates) and
+//! the document title. Reading returns the header and footer texts with the fields written back as
+//! `{page}` and `{pages}`; complex fields and headers of other sections or first pages are not read.
 use super::{
     Deadline, invalid,
     xml::{self, Event, attr, escape},
@@ -135,7 +140,59 @@ pub(super) fn read(bytes: &[u8], include_tables: bool, deadline: &Deadline) -> R
             _ => {}
         }
     }
-    Ok(json!({"text":lines.join("\n"),"paragraphs":paragraphs,"tables":tables}))
+    let mut result = json!({"text":lines.join("\n"),"paragraphs":paragraphs,"tables":tables});
+    for (key, prefix) in [("headers", "word/header"), ("footers", "word/footer")] {
+        let mut names: Vec<&str> = archive
+            .names()
+            .filter(|n| n.starts_with(prefix) && n.ends_with(".xml"))
+            .collect();
+        names.sort_unstable();
+        let mut texts = vec![];
+        for name in names.into_iter().take(8) {
+            let text = part_text(&archive.read_text(name)?)?;
+            if !text.is_empty() {
+                texts.push(text);
+            }
+        }
+        if !texts.is_empty() {
+            result[key] = json!(texts);
+        }
+    }
+    Ok(result)
+}
+
+/// The text of a header or footer part: paragraphs joined by newlines, page fields as `{page}` / `{pages}`.
+fn part_text(xml_text: &str) -> Result<String> {
+    let (mut out, mut in_text, mut skip_field) = (String::new(), false, false);
+    for event in xml::parse(xml_text)? {
+        match event {
+            Event::Start { name, attrs } if name == "w:fldSimple" => {
+                let instr = attr(&attrs, "w:instr")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_uppercase();
+                if instr.starts_with("PAGE") {
+                    out.push_str("{page}");
+                } else if instr.starts_with("NUMPAGES") {
+                    out.push_str("{pages}");
+                }
+                skip_field = true;
+            }
+            Event::End { name } if name == "w:fldSimple" => skip_field = false,
+            Event::Start { name, .. } if name == "w:t" => in_text = true,
+            Event::End { name } if name == "w:t" => in_text = false,
+            Event::Text(text) if in_text && !skip_field => out.push_str(&text),
+            Event::Empty { name, .. } | Event::Start { name, .. } if name == "w:tab" => {
+                out.push('\t')
+            }
+            Event::End { name } if name == "w:p" => out.push('\n'),
+            _ => {}
+        }
+        if out.chars().count() > 20_000 {
+            return Err(invalid("header or footer text is too long"));
+        }
+    }
+    Ok(out.trim_matches('\n').to_owned())
 }
 
 fn text_runs(text: &str, bold: bool, italic: bool) -> String {
@@ -238,6 +295,64 @@ fn table(input: &Value) -> Result<String> {
 const NS: &str = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"";
 const HEADER: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n";
 
+/// A header or footer part: one small grey paragraph, with live page fields.
+fn running_part(spec: &Value, root: &str, title: &str) -> Result<Option<String>> {
+    let Some(text) = spec["text"].as_str().filter(|t| !t.is_empty()) else {
+        return Ok(None);
+    };
+    if text.chars().count() > 1000 {
+        return Err(invalid("a header or footer is at most 1000 characters"));
+    }
+    let align = match spec["align"].as_str() {
+        None | Some("center") => "center",
+        Some("left") => "left",
+        Some("right") => "right",
+        Some(_) => return Err(invalid("align must be left, center or right")),
+    };
+    let properties = "<w:rPr><w:sz w:val=\"18\"/><w:color w:val=\"666666\"/></w:rPr>";
+    let literal = |piece: &str| {
+        if piece.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<w:r>{properties}<w:t xml:space=\"preserve\">{}</w:t></w:r>",
+                escape(piece)
+            )
+        }
+    };
+    let field = |instr: &str| {
+        format!(
+            "<w:fldSimple w:instr=\" {instr} \"><w:r>{properties}<w:t>1</w:t></w:r></w:fldSimple>"
+        )
+    };
+    let mut runs = String::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let next = ["{page}", "{pages}", "{title}"]
+            .iter()
+            .filter_map(|t| rest.find(t).map(|at| (at, *t)))
+            .min();
+        match next {
+            None => {
+                runs.push_str(&literal(rest));
+                break;
+            }
+            Some((at, token)) => {
+                runs.push_str(&literal(&rest[..at]));
+                runs.push_str(&match token {
+                    "{page}" => field("PAGE"),
+                    "{pages}" => field("NUMPAGES"),
+                    _ => literal(title),
+                });
+                rest = &rest[at + token.len()..];
+            }
+        }
+    }
+    Ok(Some(format!(
+        "{HEADER}<w:{root} {NS}><w:p><w:pPr><w:jc w:val=\"{align}\"/></w:pPr>{runs}</w:p></w:{root}>"
+    )))
+}
+
 pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
     let mut body = String::new();
     let title = input["title"].as_str().filter(|title| !title.is_empty());
@@ -281,8 +396,24 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
     if body.is_empty() {
         body.push_str("<w:p/>");
     }
+    let title_text = title.unwrap_or_default();
+    let header_part = running_part(&input["header"], "hdr", title_text)?;
+    let footer_part = running_part(&input["footer"], "ftr", title_text)?;
+    let references = format!(
+        "{}{}",
+        if header_part.is_some() {
+            "<w:headerReference w:type=\"default\" r:id=\"rId3\"/>"
+        } else {
+            ""
+        },
+        if footer_part.is_some() {
+            "<w:footerReference w:type=\"default\" r:id=\"rId4\"/>"
+        } else {
+            ""
+        }
+    );
     let document = format!(
-        "{HEADER}<w:document {NS}><w:body>{body}<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>"
+        "{HEADER}<w:document {NS} xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><w:body>{body}<w:sectPr>{references}<w:pgSz w:w=\"12240\" w:h=\"15840\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" w:header=\"720\" w:footer=\"720\" w:gutter=\"0\"/></w:sectPr></w:body></w:document>"
     );
     let heading = |id: &str, name: &str, size: u32| {
         format!(
@@ -301,10 +432,16 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
     );
     let core_title = title.map(escape).unwrap_or_default();
     let mut zip = Writer::default();
-    zip.add("[Content_Types].xml", format!("{HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/><Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/><Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/><Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/></Types>").as_bytes())?;
+    zip.add("[Content_Types].xml", format!("{HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/><Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/><Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/><Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>{}{}</Types>", if header_part.is_some() { "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>" } else { "" }, if footer_part.is_some() { "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>" } else { "" }).as_bytes())?;
     zip.add("_rels/.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/></Relationships>").as_bytes())?;
     zip.add("docProps/core.xml", format!("{HEADER}<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>{core_title}</dc:title></cp:coreProperties>").as_bytes())?;
-    zip.add("word/_rels/document.xml.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/></Relationships>").as_bytes())?;
+    zip.add("word/_rels/document.xml.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering\" Target=\"numbering.xml\"/>{}{}</Relationships>", if header_part.is_some() { "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\"/>" } else { "" }, if footer_part.is_some() { "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>" } else { "" }).as_bytes())?;
+    if let Some(part) = &header_part {
+        zip.add("word/header1.xml", part.as_bytes())?;
+    }
+    if let Some(part) = &footer_part {
+        zip.add("word/footer1.xml", part.as_bytes())?;
+    }
     zip.add("word/document.xml", document.as_bytes())?;
     zip.add("word/styles.xml", styles.as_bytes())?;
     zip.add("word/numbering.xml", numbering.as_bytes())?;

@@ -207,17 +207,29 @@ export class PresetProvider extends NativeHttpProvider {
 
 export class Anthropic extends NativeHttpProvider {
   constructor({ baseUrl = 'https://api.anthropic.com/v1', apiKey, timeoutMs = 60_000,
-    maxResponseBytes = 16 * 1024 * 1024, apiVersion = '2026-10-21', defaultMaxOutputTokens = 4096, resilience } = {}) {
+    maxResponseBytes = 16 * 1024 * 1024, apiVersion = '2026-10-21', defaultMaxOutputTokens, contextWindow, resilience } = {}) {
     super({ kind: 'anthropic', base_url: baseUrl, api_key: apiKey, timeout_ms: timeoutMs,
-      max_response_bytes: maxResponseBytes, api_version: apiVersion, default_max_output_tokens: defaultMaxOutputTokens, resilience });
+      max_response_bytes: maxResponseBytes, api_version: apiVersion, default_max_output_tokens: defaultMaxOutputTokens,
+      context_window: contextWindow, resilience });
   }
 }
 
 export class Gemini extends NativeHttpProvider {
   constructor({ baseUrl = 'https://generativelanguage.googleapis.com/v1beta', apiKey, timeoutMs = 60_000,
-    maxResponseBytes = 16 * 1024 * 1024, defaultMaxOutputTokens = 4096, resilience } = {}) {
+    maxResponseBytes = 16 * 1024 * 1024, defaultMaxOutputTokens, contextWindow, resilience } = {}) {
     super({ kind: 'gemini', base_url: baseUrl, api_key: apiKey, timeout_ms: timeoutMs,
-      max_response_bytes: maxResponseBytes, default_max_output_tokens: defaultMaxOutputTokens, resilience });
+      max_response_bytes: maxResponseBytes, default_max_output_tokens: defaultMaxOutputTokens,
+      context_window: contextWindow, resilience });
+  }
+}
+
+/** Ollama's native chat API (`/api/chat`): the context size, keep-alive and thinking are options only it takes. */
+export class Ollama extends NativeHttpProvider {
+  constructor({ baseUrl = 'http://localhost:11434/api', apiKey, timeoutMs = 60_000, maxResponseBytes = 16 * 1024 * 1024,
+    defaultMaxOutputTokens, contextWindow, numCtx, keepAlive, think, resilience } = {}) {
+    super({ kind: 'ollama', base_url: baseUrl, api_key: apiKey, timeout_ms: timeoutMs, max_response_bytes: maxResponseBytes,
+      default_max_output_tokens: defaultMaxOutputTokens, context_window: contextWindow, num_ctx: numCtx,
+      keep_alive: keepAlive, think, resilience });
   }
 }
 
@@ -503,6 +515,7 @@ export class Trigger {
     if (schedule?.kind === 'event') nativeSchedule = { kind: 'event' };
     else if (schedule?.kind === 'at') nativeSchedule = { kind: 'at', unix_ms: schedule.unixMs };
     else if (schedule?.kind === 'interval') nativeSchedule = { kind: 'interval', every_ms: schedule.everyMs, anchor_unix_ms: schedule.anchorUnixMs ?? null };
+    else if (schedule?.kind === 'cron') nativeSchedule = { kind: 'cron', expression: schedule.expression, timezone: schedule.timezone, dom_and_dow: schedule.domAndDow ?? false };
     else throw new TypeError('Unsupported trigger schedule');
     if (internal !== deferredLoad) objective._dispatch({ op: 'trigger_register', id, schedule: nativeSchedule });
     this.#schedule = nativeSchedule;
@@ -610,6 +623,68 @@ export class Trigger {
 }
 const delegationContext = Symbol('delegationContext');
 const mcpClientToken = Symbol('McpClient');
+/** The connection options of McpClient.connect as the native config. */
+function mcpConfig(options) {
+  const { transport = 'stdio', timeoutMs = 30_000,
+    maxMessageBytes = 8 * 1024 * 1024, maxTools = 256, maxPages = 16, maxMessages = 128 } = options;
+  let connection;
+  if (transport === 'stdio') {
+    if (options.url !== undefined || options.headers !== undefined) throw new TypeError('URL options require transport: http or sse');
+    connection = { command: options.command, args: options.args ?? [], env: options.env ?? {}, cwd: options.cwd };
+  } else if (transport === 'http' || transport === 'sse') {
+    if (['command', 'args', 'env', 'cwd'].some(key => options[key] !== undefined)) throw new TypeError('Process options require transport: stdio');
+    connection = { url: options.url, headers: options.headers ?? {} };
+  } else throw new TypeError('Unsupported MCP transport');
+  // The classic HTTP+SSE transport speaks the 2025-03-26 revision unless told otherwise.
+  const protocolVersion = options.protocolVersion ?? (transport === 'sse' ? '2025-03-26' : '2025-11-25');
+  return { transport, ...connection, protocol_version: protocolVersion, timeout_ms: timeoutMs,
+    max_message_bytes: maxMessageBytes, max_tools: maxTools, max_pages: maxPages, max_messages: maxMessages };
+}
+
+/**
+ * Several named MCP servers that can be reloaded while the application runs. `apply` takes the whole
+ * desired set and reconciles it (unchanged connected servers are kept, new or changed ones are connected,
+ * removed ones are closed); a server that fails is reported and the rest are unaffected. Nothing reconnects
+ * or retries on its own: an uncertain call closes its server, and `reconnect` or the next `apply` starts a
+ * new session for later calls. See docs/mcp.md.
+ */
+export class McpManager {
+  #native;
+  constructor() { this.#native = native().createMcpManager(); }
+  /** `servers` maps a name to the options of McpClient.connect, plus `enabled: false` to keep one unconnected. */
+  async apply(servers, { drainMs = 0 } = {}) {
+    if (servers === null || typeof servers !== 'object' || Array.isArray(servers)) throw new TypeError('servers must be an object of name to options');
+    const desired = {};
+    for (const [name, { enabled, ...options }] of Object.entries(servers)) {
+      desired[name] = { ...mcpConfig(options), ...(enabled === undefined ? {} : { enabled }) };
+    }
+    return JSON.parse(await this.#native.apply(JSON.stringify(desired), drainMs));
+  }
+  async reconnect(name) { return JSON.parse(await this.#native.reconnect(name)); }
+  /** List one connected server's tools again: `{ server, added, removed, changed }`. `catalog` and `tools()` use the new list. */
+  async refreshTools(name) { return JSON.parse(await this.#native.refreshTools(name)); }
+  get status() { return JSON.parse(this.#native.status()); }
+  get catalog() { return JSON.parse(this.#native.catalog()); }
+  /** Executable tools for the connected servers, named `<server>__<tool>`. Take a new list after `apply` to see new tools. */
+  tools({ servers, names } = {}) {
+    const rows = this.catalog.filter(row => (servers === undefined || servers.includes(row.server)) && (names === undefined || names.includes(row.name)));
+    return rows.map(row => ({ name: row.name, description: row.description, parameters: structuredClone(row.inputSchema),
+      execute: (arguments_, context) => this.call(row.server, row.tool, arguments_, { signal: context.signal, context }) }));
+  }
+  async call(server, tool, arguments_, { signal, context = {} } = {}) {
+    checkCancelled(signal);
+    const handle = await this.#native.startCall(server, tool, JSON.stringify(arguments_), JSON.stringify(context));
+    const abort = () => handle.cancel(); signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    try { return JSON.parse(await handle.result()); }
+    catch (error) {
+      if (error.message?.startsWith('MCP_OPERATION_UNCERTAIN:')) throw new McpOperationUncertain(error.message);
+      throw error;
+    } finally { signal?.removeEventListener('abort', abort); handle.cancel(); }
+  }
+  async close() { await this.#native.close(); }
+}
+
 export class McpClient {
   #native;
   #catalog;
@@ -618,23 +693,19 @@ export class McpClient {
     this.#native = handle; this.#catalog = JSON.parse(handle.catalog());
   }
   static async connect(options) {
-    const { transport = 'stdio', protocolVersion = '2025-11-25', timeoutMs = 30_000,
-      maxMessageBytes = 8 * 1024 * 1024, maxTools = 256, maxPages = 16, maxMessages = 128 } = options;
-    let connection;
-    if (transport === 'stdio') {
-      if (options.url !== undefined || options.headers !== undefined) throw new TypeError('HTTP options require transport: http');
-      connection = { command: options.command, args: options.args ?? [], env: options.env ?? {}, cwd: options.cwd };
-    } else if (transport === 'http') {
-      if (['command', 'args', 'env', 'cwd'].some(key => options[key] !== undefined)) throw new TypeError('Process options require transport: stdio');
-      connection = { url: options.url, headers: options.headers ?? {} };
-    } else throw new TypeError('Unsupported MCP transport');
-    const handle = await native().connectMcp(JSON.stringify({ transport, ...connection,
-      protocol_version: protocolVersion, timeout_ms: timeoutMs, max_message_bytes: maxMessageBytes,
-      max_tools: maxTools, max_pages: maxPages, max_messages: maxMessages }));
+    const handle = await native().connectMcp(JSON.stringify(mcpConfig(options)));
     return new McpClient(handle, mcpClientToken);
   }
   get info() { return JSON.parse(this.#native.info()); }
   get catalog() { return structuredClone(this.#catalog); }
+  /** The server announced that its tool list changed. Only seen after the next exchange; `refreshTools()` lists now. */
+  get toolsChanged() { return this.#native.toolsChanged(); }
+  /** List the tools again: `{ added, removed, changed }` by name. `tools()` and `catalog` use the new list from now on; an Agent already created keeps the tools it was created with. */
+  async refreshTools() {
+    const diff = JSON.parse(await this.#native.refreshTools());
+    this.#catalog = JSON.parse(this.#native.catalog());
+    return diff;
+  }
   listResources({ cursor, signal } = {}) { return this.#catalogRequest('resources/list', cursor === undefined ? {} : { cursor }, signal); }
   readResource(uri, { signal } = {}) { return this.#catalogRequest('resources/read', { uri }, signal); }
   listPrompts({ cursor, signal } = {}) { return this.#catalogRequest('prompts/list', cursor === undefined ? {} : { cursor }, signal); }
@@ -732,6 +803,8 @@ export class Agent {
   #engine;
   #durable;
   #loadOptions;
+  #toolPolicy;
+  #hooks;
 
   #loaded(loaded, resume) {
     this.#revision = loaded.revision; this.#frame = loaded; this.#resumePending = resume;
@@ -743,13 +816,78 @@ export class Agent {
     try { return this.#durable ? JSON.parse(this.#durable.dispatch(JSON.stringify(command))) : this.#memory(command); }
     catch (error) { if (error.message?.startsWith('OBJECTIVE_LIMIT:')) throw new ObjectiveLimit(error.message); throw error; }
   }
+  /**
+   * Decide whether a tool call may run: the declarative policy (evaluated natively), then the
+   * beforeTool hook, then human approval when either says `ask`. The strictest answer wins, and any
+   * hook failure denies. Runs before the operation is claimed, so waiting for approval never leaves
+   * a claimed-but-unrun operation behind if the process dies.
+   */
+  async #authorize(call, signal) {
+    if (!this.#toolPolicy && !this.#hooks) return { allowed: true };
+    const rank = { allow: 0, ask: 1, deny: 2 };
+    let decision = 'allow', reason = null;
+    const tighten = (next, why) => { if (rank[next] > rank[decision]) { decision = next; reason = why; } };
+    const raced = promise => new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(new Error('CANCELLED'));
+      const abort = () => reject(new Error('CANCELLED'));
+      signal?.addEventListener('abort', abort, { once: true });
+      Promise.resolve(promise).then(resolve, reject).finally(() => signal?.removeEventListener('abort', abort));
+    });
+    if (this.#toolPolicy) {
+      const verdict = JSON.parse(native().evaluateToolPolicy(this.#toolPolicy, call.name, JSON.stringify(call.arguments ?? {})));
+      tighten(verdict.decision, verdict.reason);
+    }
+    if (this.#hooks?.beforeTool) {
+      try {
+        const answer = await raced(this.#hooks.beforeTool({ call: structuredClone(call), verdict: { decision, reason }, signal }));
+        if (answer?.decision !== undefined) {
+          if (!(answer.decision in rank)) tighten('deny', 'POLICY_HOOK_FAILED: beforeTool returned an unknown decision');
+          else tighten(answer.decision, answer.reason ?? 'beforeTool hook');
+        }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        tighten('deny', 'POLICY_HOOK_FAILED: beforeTool threw');
+      }
+    }
+    if (decision === 'ask') {
+      if (!this.#hooks?.approve) {
+        decision = 'deny'; reason = `APPROVAL_UNAVAILABLE: ${reason ?? 'approval required'} (no approve hook is configured)`;
+      } else {
+        let approved = false, why = null;
+        try {
+          const answer = await raced(this.#hooks.approve({ call: structuredClone(call), reason, signal }));
+          approved = answer === true || answer?.approved === true;
+          why = typeof answer === 'object' ? answer?.reason ?? null : null;
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          why = 'APPROVAL_FAILED: the approval hook threw';
+        }
+        if (approved) decision = 'allow';
+        else { decision = 'deny'; reason = why ?? `approval refused: ${reason ?? 'approval required'}`; }
+      }
+    }
+    return { allowed: decision === 'allow', reason };
+  }
+
   async #persist(command) {
     try { return JSON.parse(await this.#durable.dispatchAsync(JSON.stringify(command))); }
     catch (error) { if (error.message?.startsWith('OBJECTIVE_LIMIT:')) throw new ObjectiveLimit(error.message); throw error; }
   }
 
   constructor({ model, system, tools = [], provider, maxTurns = 8, policy = {}, onEvent,
-    store, agentId, sessionId, resume = false, objective }, internal) {
+    store, agentId, sessionId, resume = false, objective, toolPolicy, hooks }, internal) {
+    if (toolPolicy !== undefined) {
+      // Validate now so a bad policy fails at construction, not mid-run.
+      native().evaluateToolPolicy(JSON.stringify(toolPolicy), '_', '{}');
+      this.#toolPolicy = JSON.stringify(toolPolicy);
+    }
+    if (hooks !== undefined) {
+      for (const name of Object.keys(hooks)) {
+        if (!['beforeTool', 'afterTool', 'approve'].includes(name)) throw new TypeError(`Unknown hook ${name}`);
+        if (typeof hooks[name] !== 'function') throw new TypeError(`Hook ${name} must be a function`);
+      }
+      this.#hooks = { ...hooks };
+    }
     if (objective !== undefined && !(objective instanceof Objective)) throw new TypeError('objective must be an Objective');
     objective?._validateStore(store);
     this.#objective = objective;
@@ -981,6 +1119,8 @@ export class Agent {
           frame = this.#store ? await this.#persist({ op: 'reject' }) : this.#memory({ op: 'reject' });
           if (this.#store) this.#revision = frame.revision;
         } else if (action.type === 'tool') {
+          const authorization = await this.#authorize(action.call, signal);
+          checkCancelled(signal);
           if (!this.#store && objective) await objective._dispatchAsync({ op: summaryKey === undefined ? 'tool' : 'summary_tool', key: summaryKey, depth });
           if (this.#store) {
             frame = await this.#persist({ op: 'claim' });
@@ -1008,12 +1148,31 @@ export class Agent {
               children.push(run.promise); childRuns.push(run);
               return run.promise;
             } });
-            result = await this.#tools.get(action.call.name).execute(action.call.arguments, context);
-            acceptingChildren = false;
-            await Promise.all(children);
-            // Ensure host values can cross the shared JSON contract before accepting them.
-            if (JSON.stringify(result) === undefined) throw new TypeError('Tool must return a JSON value');
-            result = JSON.parse(JSON.stringify(result));
+            if (!authorization.allowed) {
+              // Denied: the tool is not run; the model is told why, like any tool error.
+              result = { error: { message: authorization.reason?.startsWith('POLICY_') || authorization.reason?.startsWith('APPROVAL_')
+                ? authorization.reason : `POLICY_DENIED: ${authorization.reason ?? 'not allowed'}` } };
+            } else {
+              result = await this.#tools.get(action.call.name).execute(action.call.arguments, context);
+              acceptingChildren = false;
+              await Promise.all(children);
+              // Ensure host values can cross the shared JSON contract before accepting them.
+              if (JSON.stringify(result) === undefined) throw new TypeError('Tool must return a JSON value');
+              result = JSON.parse(JSON.stringify(result));
+              if (this.#hooks?.afterTool) {
+                // The tool already ran. If the filter fails its output is withheld rather than passed on unchecked.
+                try {
+                  const filtered = await this.#hooks.afterTool({ call: structuredClone(action.call), result: structuredClone(result), signal });
+                  if (filtered && Object.hasOwn(filtered, 'result')) {
+                    if (JSON.stringify(filtered.result) === undefined) throw new TypeError('afterTool must return a JSON result');
+                    result = JSON.parse(JSON.stringify(filtered.result));
+                  }
+                } catch (error) {
+                  checkCancelled(signal);
+                  result = { error: { message: 'POLICY_HOOK_FAILED: afterTool failed; the tool ran but its output was withheld' } };
+                }
+              }
+            }
           } catch (error) {
             for (const run of childRuns) run.cancel();
             if (error instanceof ToolOperationUncertain || error instanceof ObjectiveLimit) throw error;
@@ -1086,7 +1245,7 @@ export class ArtifactStore {
   #call(command) { return this.#store._dispatchAsync({ op: 'artifacts', root: this.#root, command }); }
   definitions() { return this.#call({ op: 'tool_definitions' }); }
   execute(name, arguments_) { return this.#call({ op: 'execute_tool', name, arguments: arguments_ }); }
-  /** Agent-ready tools: artifact_save/inspect/read/list/delete and image_info. */
+  /** Agent-ready tools: artifact_save/inspect/read/list/delete, image_info and artifact_transform_image. */
   async createTools() {
     return (await this.definitions()).map(definition => ({ ...definition, execute: arguments_ => this.execute(definition.name, arguments_) }));
   }
@@ -1159,6 +1318,12 @@ export class NativeTools {
   installObscura({ update = false } = {}) { return this.#call({ op: 'install_obscura', update }); }
   /** Aborts calls in flight; later calls are unaffected. */
   cancel() { for (const request of this.#active) request.cancel(); }
+  /** Host kill switch for the computer_* tools: interrupts an action in progress and refuses later ones until `computerResume()`. */
+  computerStop() { return this.#call({ op: 'computer_stop' }); }
+  computerResume() { return this.#call({ op: 'computer_resume' }); }
+  /** Gives the computer_* tools a fresh action budget. */
+  computerReset() { return this.#call({ op: 'computer_reset' }); }
+  computerStatus() { return this.#call({ op: 'computer_status' }); }
   /** Stops the Obscura session the obscura_* tools started, if any. The next call starts a new one. */
   async close() { await this.#native.close(); }
 }

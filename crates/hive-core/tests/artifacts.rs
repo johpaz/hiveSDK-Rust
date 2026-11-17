@@ -482,17 +482,18 @@ fn tools_save_read_inspect_list_delete_and_report_image_info() {
         .into_iter()
         .map(|tool| tool.name)
         .collect();
-    assert_eq!(
-        names,
-        [
-            "artifact_save",
-            "artifact_inspect",
-            "artifact_read",
-            "artifact_list",
-            "artifact_delete",
-            "image_info"
-        ]
-    );
+    let mut expected = vec![
+        "artifact_save",
+        "artifact_inspect",
+        "artifact_read",
+        "artifact_list",
+        "artifact_delete",
+        "image_info",
+    ];
+    if cfg!(feature = "images") {
+        expected.push("artifact_transform_image");
+    }
+    assert_eq!(names, expected);
 
     let saved = call(
         &fx.artifacts,
@@ -642,7 +643,7 @@ fn the_store_dispatches_artifact_commands_for_bindings() {
             .as_array()
             .unwrap()
             .len(),
-        6
+        if cfg!(feature = "images") { 7 } else { 6 }
     );
     let saved = run(json!({"op":"execute_tool","name":"artifact_save","arguments":{"kind":"k","mime_type":"text/plain","text":"hi","expires_in_days":1}})).unwrap();
     assert_eq!(saved["mime_type"], "text/plain");

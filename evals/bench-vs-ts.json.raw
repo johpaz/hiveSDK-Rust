@@ -1,0 +1,468 @@
+{
+  "clients": 36,
+  "load_paths": [
+    "/health",
+    "/api/agents",
+    "/api/providers",
+    "/api/tools",
+    "/api/skills",
+    "/api/setup/status"
+  ],
+  "runs": 10,
+  "impl": {
+    "rust": {
+      "startup_s": [
+        0.038,
+        0.041,
+        0.045,
+        0.037,
+        0.036,
+        0.041,
+        0.039,
+        0.039,
+        0.04,
+        0.038
+      ],
+      "idle_mb": [
+        29.3,
+        29.6,
+        29.7,
+        29.4,
+        29.4,
+        29.5,
+        29.2,
+        29.4,
+        29.2,
+        29.2
+      ],
+      "load": [
+        {
+          "per_path": {
+            "/health": {
+              "rps": 49653.7,
+              "mean_ms": 0.725,
+              "p50_ms": 1.0,
+              "p99_ms": 1.0,
+              "requests": 148967,
+              "failed": 0
+            },
+            "/api/agents": {
+              "rps": 16490.0,
+              "mean_ms": 2.183,
+              "p50_ms": 2.0,
+              "p99_ms": 4.0,
+              "requests": 49476,
+              "failed": 0
+            },
+            "/api/providers": {
+              "rps": 1941.0,
+              "mean_ms": 18.547,
+              "p50_ms": 17.0,
+              "p99_ms": 44.0,
+              "requests": 5831,
+              "failed": 0
+            },
+            "/api/tools": {
+              "rps": 8943.0,
+              "mean_ms": 4.026,
+              "p50_ms": 4.0,
+              "p99_ms": 9.0,
+              "requests": 26837,
+              "failed": 0
+            },
+            "/api/skills": {
+              "rps": 10299.9,
+              "mean_ms": 3.495,
+              "p50_ms": 3.0,
+              "p99_ms": 7.0,
+              "requests": 30909,
+              "failed": 0
+            },
+            "/api/setup/status": {
+              "rps": 6126.8,
+              "mean_ms": 5.876,
+              "p50_ms": 5.0,
+              "p99_ms": 13.0,
+              "requests": 18387,
+              "failed": 0
+            }
+          },
+          "failed": 0
+        },
+        {
+          "per_path": {
+            "/health": {
+              "rps": 48879.9,
+              "mean_ms": 0.736,
+              "p50_ms": 1.0,
+              "p99_ms": 2.0,
+              "requests": 146646,
+              "failed": 0
+            },
+            "/api/agents": {
+              "rps": 16573.3,
+              "mean_ms": 2.172,
+              "p50_ms": 2.0,
+              "p99_ms": 5.0,
+              "requests": 49726,
+              "failed": 0
+            },
+            "/api/providers": {
+              "rps": 2038.8,
+              "mean_ms": 17.657,
+              "p50_ms": 17.0,
+              "p99_ms": 39.0,
+              "requests": 6126,
+              "failed": 0
+            },
+            "/api/tools": {
+              "rps": 9092.4,
+              "mean_ms": 3.959,
+              "p50_ms": 4.0,
+              "p99_ms": 9.0,
+              "requests": 27289,
+              "failed": 0
+            },
+            "/api/skills": {
+              "rps": 10247.2,
+              "mean_ms": 3.513,
+              "p50_ms": 3.0,
+              "p99_ms": 7.0,
+              "requests": 30747,
+              "failed": 0
+            },
+            "/api/setup/status": {
+              "rps": 6343.8,
+              "mean_ms": 5.675,
+              "p50_ms": 5.0,
+              "p99_ms": 12.0,
+              "requests": 19040,
+              "failed": 0
+            }
+          },
+          "failed": 0
+        },
+        {
+          "per_path": {
+            "/health": {
+              "rps": 48378.6,
+              "mean_ms": 0.744,
+              "p50_ms": 1.0,
+              "p99_ms": 2.0,
+              "requests": 145167,
+              "failed": 0
+            },
+            "/api/agents": {
+              "rps": 16814.3,
+              "mean_ms": 2.141,
+              "p50_ms": 2.0,
+              "p99_ms": 4.0,
+              "requests": 50455,
+              "failed": 0
+            },
+            "/api/providers": {
+              "rps": 2077.7,
+              "mean_ms": 17.327,
+              "p50_ms": 16.0,
+              "p99_ms": 37.0,
+              "requests": 6241,
+              "failed": 0
+            },
+            "/api/tools": {
+              "rps": 9147.6,
+              "mean_ms": 3.935,
+              "p50_ms": 4.0,
+              "p99_ms": 8.0,
+              "requests": 27445,
+              "failed": 0
+            },
+            "/api/skills": {
+              "rps": 10437.3,
+              "mean_ms": 3.449,
+              "p50_ms": 3.0,
+              "p99_ms": 7.0,
+              "requests": 31316,
+              "failed": 0
+            },
+            "/api/setup/status": {
+              "rps": 6361.1,
+              "mean_ms": 5.659,
+              "p50_ms": 5.0,
+              "p99_ms": 12.0,
+              "requests": 19096,
+              "failed": 0
+            }
+          },
+          "failed": 0
+        }
+      ],
+      "load_peak_mb": [
+        128.0,
+        121.6,
+        125.8
+      ],
+      "shapes": {
+        "/health": {
+          "status": 200,
+          "bytes": 426,
+          "items": 22
+        },
+        "/api/agents": {
+          "status": 200,
+          "bytes": 34369,
+          "items": 12
+        },
+        "/api/providers": {
+          "status": 200,
+          "bytes": 77651,
+          "items": 18
+        },
+        "/api/tools": {
+          "status": 200,
+          "bytes": 30283,
+          "items": 99
+        },
+        "/api/skills": {
+          "status": 200,
+          "bytes": 66790,
+          "items": 26
+        },
+        "/api/setup/status": {
+          "status": 200,
+          "bytes": 19,
+          "items": null
+        }
+      }
+    },
+    "ts": {
+      "startup_s": [
+        0.637,
+        0.678,
+        0.697,
+        0.64,
+        0.684,
+        0.675,
+        0.631,
+        0.622,
+        0.651,
+        0.632
+      ],
+      "idle_mb": [
+        197.3,
+        195.7,
+        203.2,
+        195.4,
+        193.7,
+        192.6,
+        189.6,
+        183.2,
+        201.5,
+        197.1
+      ],
+      "load": [
+        {
+          "per_path": {
+            "/health": {
+              "rps": 20831.9,
+              "mean_ms": 1.728,
+              "p50_ms": 2.0,
+              "p99_ms": 3.0,
+              "requests": 62505,
+              "failed": 0
+            },
+            "/api/agents": {
+              "rps": 972.1,
+              "mean_ms": 37.033,
+              "p50_ms": 36.0,
+              "p99_ms": 50.0,
+              "requests": 2922,
+              "failed": 0
+            },
+            "/api/providers": {
+              "rps": 440.1,
+              "mean_ms": 81.805,
+              "p50_ms": 77.0,
+              "p99_ms": 195.0,
+              "requests": 1322,
+              "failed": 0
+            },
+            "/api/tools": {
+              "rps": 2215.1,
+              "mean_ms": 16.252,
+              "p50_ms": 16.0,
+              "p99_ms": 23.0,
+              "requests": 6647,
+              "failed": 0
+            },
+            "/api/skills": {
+              "rps": 1783.8,
+              "mean_ms": 20.181,
+              "p50_ms": 20.0,
+              "p99_ms": 31.0,
+              "requests": 5356,
+              "failed": 0
+            },
+            "/api/setup/status": {
+              "rps": 10780.6,
+              "mean_ms": 3.339,
+              "p50_ms": 3.0,
+              "p99_ms": 5.0,
+              "requests": 32344,
+              "failed": 0
+            }
+          },
+          "failed": 0
+        },
+        {
+          "per_path": {
+            "/health": {
+              "rps": 21132.5,
+              "mean_ms": 1.704,
+              "p50_ms": 2.0,
+              "p99_ms": 3.0,
+              "requests": 63408,
+              "failed": 0
+            },
+            "/api/agents": {
+              "rps": 979.1,
+              "mean_ms": 36.767,
+              "p50_ms": 36.0,
+              "p99_ms": 47.0,
+              "requests": 2939,
+              "failed": 0
+            },
+            "/api/providers": {
+              "rps": 439.1,
+              "mean_ms": 81.995,
+              "p50_ms": 76.0,
+              "p99_ms": 170.0,
+              "requests": 1322,
+              "failed": 0
+            },
+            "/api/tools": {
+              "rps": 2196.2,
+              "mean_ms": 16.392,
+              "p50_ms": 16.0,
+              "p99_ms": 23.0,
+              "requests": 6594,
+              "failed": 0
+            },
+            "/api/skills": {
+              "rps": 1811.8,
+              "mean_ms": 19.87,
+              "p50_ms": 20.0,
+              "p99_ms": 29.0,
+              "requests": 5441,
+              "failed": 0
+            },
+            "/api/setup/status": {
+              "rps": 10485.1,
+              "mean_ms": 3.433,
+              "p50_ms": 3.0,
+              "p99_ms": 5.0,
+              "requests": 31460,
+              "failed": 0
+            }
+          },
+          "failed": 0
+        },
+        {
+          "per_path": {
+            "/health": {
+              "rps": 21038.6,
+              "mean_ms": 1.711,
+              "p50_ms": 2.0,
+              "p99_ms": 3.0,
+              "requests": 63121,
+              "failed": 0
+            },
+            "/api/agents": {
+              "rps": 978.7,
+              "mean_ms": 36.783,
+              "p50_ms": 36.0,
+              "p99_ms": 46.0,
+              "requests": 2958,
+              "failed": 0
+            },
+            "/api/providers": {
+              "rps": 425.1,
+              "mean_ms": 84.684,
+              "p50_ms": 88.0,
+              "p99_ms": 197.0,
+              "requests": 1278,
+              "failed": 0
+            },
+            "/api/tools": {
+              "rps": 2133.9,
+              "mean_ms": 16.87,
+              "p50_ms": 17.0,
+              "p99_ms": 26.0,
+              "requests": 6408,
+              "failed": 0
+            },
+            "/api/skills": {
+              "rps": 1801.1,
+              "mean_ms": 19.988,
+              "p50_ms": 20.0,
+              "p99_ms": 28.0,
+              "requests": 5406,
+              "failed": 0
+            },
+            "/api/setup/status": {
+              "rps": 10462.7,
+              "mean_ms": 3.441,
+              "p50_ms": 3.0,
+              "p99_ms": 5.0,
+              "requests": 31395,
+              "failed": 0
+            }
+          },
+          "failed": 0
+        }
+      ],
+      "load_peak_mb": [
+        315.1,
+        380.5,
+        317.6
+      ],
+      "shapes": {
+        "/health": {
+          "status": 200,
+          "bytes": 190,
+          "items": null
+        },
+        "/api/agents": {
+          "status": 200,
+          "bytes": 39913,
+          "items": 12
+        },
+        "/api/providers": {
+          "status": 200,
+          "bytes": 41095,
+          "items": 18
+        },
+        "/api/tools": {
+          "status": 200,
+          "bytes": 27714,
+          "items": 99
+        },
+        "/api/skills": {
+          "status": 200,
+          "bytes": 63592,
+          "items": 26
+        },
+        "/api/setup/status": {
+          "status": 200,
+          "bytes": 37,
+          "items": null
+        }
+      }
+    }
+  },
+  "not_comparable": {
+    "/api/setup/status": "the TypeScript side reports configured/setupMode without checking the provider connection; the Rust one validates coordinator, provider, model, address and that the key can be read, and says why when it cannot"
+  },
+  "skipped": {
+    "/api/version": "the TypeScript side asks the npm registry on every call; the Rust one answers a fixed local status"
+  }
+}

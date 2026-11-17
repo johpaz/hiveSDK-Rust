@@ -2,7 +2,7 @@
 use crate::{
     Result,
     config::{self, App},
-    management, server,
+    server,
 };
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
@@ -108,9 +108,10 @@ pub(crate) fn route(
     path: &str,
     query: &str,
     body: &[u8],
+    user: &str,
 ) -> Result<Option<(u16, Value)>> {
     if path.starts_with("/api/cron") {
-        return crate::scheduler::route(app, method, path, query, body);
+        return crate::scheduler::route(app, method, path, query, body, user);
     }
     if path == "/api/http-request" && method == "POST" {
         let payload = serde_json::from_slice(body)?;
@@ -119,7 +120,6 @@ pub(crate) fn route(
         return Ok(Some((200, value)));
     }
     if path == "/api/notes" && method == "GET" {
-        let user = management::owner(app)?;
         let owned: std::collections::HashSet<_> = config::docs(&app.db, "conversationThreads")?
             .into_iter()
             .filter(|r| r["user_id"] == user)
@@ -134,7 +134,6 @@ pub(crate) fn route(
         return Ok(Some((200, json!({"notes":notes}))));
     }
     if path == "/api/a2ui/surfaces" && method == "GET" {
-        let user = management::owner(app)?;
         let rows = config::docs(&app.db, "hive_rust_a2ui")?
             .into_iter()
             .filter(|r| r["user_id"] == user)
@@ -148,7 +147,6 @@ pub(crate) fn route(
         && method == "DELETE"
     {
         let id = server::decode(id)?;
-        let user = management::owner(app)?;
         let Some(row) = app.db.col_get("hive_rust_a2ui", &format!("{user}:{id}"))? else {
             return Ok(Some((404, json!({"error":"Superficie desconocida"}))));
         };

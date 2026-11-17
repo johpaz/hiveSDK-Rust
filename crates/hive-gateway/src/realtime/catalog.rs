@@ -17,7 +17,7 @@ pub(crate) fn route(
     }
     let _guard = app
         .activity_lock
-        .lock()
+        .write()
         .map_err(|_| "Configuración Live bloqueada")?;
     if !matches!(method, "GET" | "POST") {
         return Ok(Some((405, json!({"error":"Método no permitido"}))));

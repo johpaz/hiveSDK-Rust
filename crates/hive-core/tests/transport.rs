@@ -15,6 +15,7 @@ fn provider(port: u16, timeout_ms: u64, max_response_bytes: usize) -> Arc<OpenAi
             timeout_ms,
             max_response_bytes,
             output_token_parameter: Default::default(),
+            context_window: None,
         })
         .unwrap(),
     )
@@ -76,6 +77,7 @@ fn invalid_transport_config_is_rejected_before_starting_requests() {
             timeout_ms: timeout,
             max_response_bytes: bytes,
             output_token_parameter: Default::default(),
+            context_window: None,
         });
         assert!(result.is_err());
     }
@@ -325,6 +327,7 @@ async fn legacy_output_cap_is_explicit_and_internal_deadline_is_not_sent() {
             timeout_ms: 1000,
             max_response_bytes: 1_000_000,
             output_token_parameter: hive_agent_core::provider::OutputTokenParameter::MaxTokens,
+            context_window: None,
         })
         .unwrap(),
     );

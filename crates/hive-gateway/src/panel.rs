@@ -20,12 +20,120 @@ fn identity(args: &Value) -> Result<&str> {
         .filter(|id| {
             !id.is_empty()
                 && id.len() <= 128
+                // Reserved for the approvals the gateway itself draws: the model cannot make,
+                // change or delete one, so a button on such a surface always comes from the gateway.
+                && !id.starts_with(APPROVAL_PREFIX)
                 && id
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"_-.:".contains(&b))
         })
         .ok_or("surfaceId inválido".into())
 }
+/// Prefix of the surfaces the gateway draws to ask for an approval (see [`approval_frames`]).
+pub(crate) const APPROVAL_PREFIX: &str = "hive-approval-";
+/// The one action name those surfaces send back; never used by a surface the model makes.
+const APPROVAL_ACTION: &str = "hive_approval";
+const MAX_APPROVAL_ARGS: usize = 600;
+
+fn approval_surface(id: &str) -> String {
+    format!("{APPROVAL_PREFIX}{id}")
+}
+
+/// The A2UI surface that asks the person, inside the chat, to approve a tool call: what is
+/// going to run, why it asks, the arguments (plain text, bounded) and two buttons. It is not
+/// stored (it only lives while the turn waits) and carries the thread it belongs to.
+pub(crate) fn approval_frames(
+    id: &str,
+    thread: &str,
+    tool: &str,
+    arguments: &Value,
+    reason: &str,
+    timeout_ms: u64,
+) -> Vec<Value> {
+    let surface = approval_surface(id);
+    let pretty = if arguments.is_null() {
+        "(sin argumentos)".to_owned()
+    } else {
+        serde_json::to_string_pretty(arguments).unwrap_or_default()
+    };
+    let shown: String = match pretty.char_indices().nth(MAX_APPROVAL_ARGS) {
+        Some((at, _)) => format!("{}…", &pretty[..at]),
+        None => pretty,
+    };
+    let button = |name: &str, label: &str, approved: bool| {
+        [
+            json!({"id":format!("{name}_t"),"component":"Text","text":label}),
+            json!({"id":name,"component":"Button","child":format!("{name}_t"),
+                "action":{"event":{"name":APPROVAL_ACTION,"context":{"approvalId":id,"approved":approved}}}}),
+        ]
+    };
+    let mut children = vec!["title", "what"];
+    let mut components = vec![
+        json!({"id":"title","component":"Text","variant":"h3","text":"Aprobación necesaria"}),
+        json!({"id":"what","component":"Text","text":format!("Hive quiere ejecutar «{tool}».")}),
+    ];
+    if !reason.trim().is_empty() {
+        children.push("why");
+        components.push(json!({"id":"why","component":"Text","variant":"caption","text":reason}));
+    }
+    children.extend(["args", "wait", "buttons"]);
+    components.extend([
+        json!({"id":"args","component":"Text","variant":"caption","text":shown}),
+        json!({"id":"wait","component":"Text","variant":"caption","text":format!("Si no respondes en {} s se denegará.", timeout_ms.div_ceil(1000))}),
+        json!({"id":"buttons","component":"Row","children":["approve","deny"]}),
+    ]);
+    components.extend(button("approve", "Aprobar", true));
+    components.extend(button("deny", "Denegar", false));
+    components.insert(
+        0,
+        json!({"id":"root","component":"Column","children":children}),
+    );
+    vec![
+        json!({"type":"a2ui:createSurface","threadId":thread,"data":{"surfaceId":surface,"theme":{"agentDisplayName":"Hive","primaryColor":"#F5A524"}}}),
+        json!({"type":"a2ui:updateComponents","threadId":thread,"data":{"surfaceId":surface,"components":components}}),
+        json!({"type":"a2ui:updateDataModel","threadId":thread,"data":{"surfaceId":surface,"path":"","value":{}}}),
+    ]
+}
+
+/// Takes the approval surface down once it was answered, timed out or the turn was cancelled.
+pub(crate) fn approval_removal(id: &str, thread: &str) -> Value {
+    json!({"type":"a2ui:deleteSurface","threadId":thread,"data":{"surfaceId":approval_surface(id)}})
+}
+
+/// What an `a2ui:action` is for the gateway.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ApprovalAction {
+    /// An ordinary panel action: it goes to the agent as before.
+    NotApproval,
+    /// A press of Aprobar or Denegar on a surface the gateway drew.
+    Answer(String, bool),
+    /// Touches the reserved name or surfaces but is not a genuine answer: refused, and it
+    /// never reaches the model.
+    Invalid,
+}
+
+/// Classify an action. An approval is resolved by the gateway itself, never turned into a
+/// prompt: what the model says cannot approve its own call.
+pub(crate) fn approval_action(data: &Value) -> ApprovalAction {
+    let surface = data["surfaceId"].as_str().unwrap_or_default();
+    if data["name"] != APPROVAL_ACTION && !surface.starts_with(APPROVAL_PREFIX) {
+        return ApprovalAction::NotApproval;
+    }
+    let (Some(id), Some(approved), Some(source)) = (
+        data["context"]["approvalId"].as_str(),
+        data["context"]["approved"].as_bool(),
+        data["sourceComponentId"].as_str(),
+    ) else {
+        return ApprovalAction::Invalid;
+    };
+    // The button pressed has to agree with what it says it answers.
+    let consistent = matches!((source, approved), ("approve", true) | ("deny", false));
+    if data["name"] != APPROVAL_ACTION || surface != approval_surface(id) || !consistent {
+        return ApprovalAction::Invalid;
+    }
+    ApprovalAction::Answer(id.to_owned(), approved)
+}
+
 pub(crate) fn frames(row: &Value) -> Vec<Value> {
     let mut result =
         vec![json!({"type":"a2ui:createSurface","userId":row["user_id"],"data":row["create"]})];
@@ -46,7 +154,7 @@ pub(crate) fn execute(
 ) -> Result<Value> {
     let surface = identity(args)?;
     let key = format!("{user}:{surface}");
-    let _guard = app.activity_lock.lock().map_err(|_| "Panel bloqueado")?;
+    let _guard = app.activity_lock.write().map_err(|_| "Panel bloqueado")?;
     if app
         .db
         .col_get("tools", name)?

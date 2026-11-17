@@ -1,7 +1,8 @@
 //! PowerPoint (.pptx): slide text out, title/content/bullet slides in.
 //!
 //! Generated decks are 16:9 with plain text boxes on a blank layout: no images,
-//! charts, transitions or presenter notes.
+//! charts or transitions. A slide may carry speaker notes (a notes master and a notes page per
+//! slide that has them); reading returns them as `notes`.
 use super::{
     Deadline, invalid,
     xml::{self, Event, attr, escape},
@@ -91,7 +92,11 @@ pub(super) fn read(bytes: &[u8], only: Option<u64>, deadline: &Deadline) -> Resu
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        slides.push(json!({"number":number,"title":title,"text":text,"paragraphs":paragraphs}));
+        let mut slide = json!({"number":number,"title":title,"text":text,"paragraphs":paragraphs});
+        if let Some(notes) = notes_of(&archive, name)? {
+            slide["notes"] = json!(notes);
+        }
+        slides.push(slide);
     }
     if let Some(wanted) = only
         && slides.is_empty()
@@ -101,6 +106,68 @@ pub(super) fn read(bytes: &[u8], only: Option<u64>, deadline: &Deadline) -> Resu
         )));
     }
     Ok(json!({"total_slides":total,"slides":slides}))
+}
+
+/// The speaker notes of a slide part, if it has a notes page: the paragraphs of its body placeholder.
+fn notes_of(archive: &Archive, slide_part: &str) -> Result<Option<String>> {
+    let rels = format!(
+        "ppt/slides/_rels/{}.rels",
+        slide_part.rsplit('/').next().unwrap_or_default()
+    );
+    if !archive.contains(&rels) {
+        return Ok(None);
+    }
+    let target = xml::parse(&archive.read_text(&rels)?)?
+        .into_iter()
+        .find_map(|event| match event {
+            Event::Empty { name, attrs } | Event::Start { name, attrs }
+                if name == "Relationship"
+                    && attr(&attrs, "Type").is_some_and(|t| t.ends_with("/notesSlide")) =>
+            {
+                attr(&attrs, "Target").map(str::to_owned)
+            }
+            _ => None,
+        });
+    let Some(target) = target else {
+        return Ok(None);
+    };
+    // Targets are relative to ppt/slides/ (`../notesSlides/notesSlide1.xml`) or absolute.
+    let part = match target.strip_prefix('/') {
+        Some(absolute) => absolute.to_owned(),
+        None => target.strip_prefix("../").map_or_else(
+            || format!("ppt/slides/{target}"),
+            |rest| format!("ppt/{rest}"),
+        ),
+    };
+    if !archive.contains(&part) {
+        return Ok(None);
+    }
+    let (mut paragraphs, mut current, mut in_text) = (Vec::<String>::new(), String::new(), false);
+    let (mut in_shape, mut in_body) = (false, false);
+    for event in xml::parse(&archive.read_text(&part)?)? {
+        match event {
+            Event::Start { name, .. } if name == "p:sp" => (in_shape, in_body) = (true, false),
+            Event::Empty { name, attrs } | Event::Start { name, attrs }
+                if name == "p:ph" && in_shape =>
+            {
+                in_body = attr(&attrs, "type") == Some("body");
+            }
+            Event::End { name } if name == "p:sp" => (in_shape, in_body) = (false, false),
+            Event::Start { name, .. } if name == "a:p" => current.clear(),
+            Event::Start { name, .. } if name == "a:t" => in_text = true,
+            Event::End { name } if name == "a:t" => in_text = false,
+            Event::Text(text) if in_text => current.push_str(&text),
+            Event::End { name } if name == "a:p" && in_body => {
+                paragraphs.push(current.trim().to_owned())
+            }
+            _ => {}
+        }
+        if paragraphs.iter().map(String::len).sum::<usize>() > MAX_TEXT_CHARS * 2 {
+            return Err(invalid("speaker notes exceed the size limit"));
+        }
+    }
+    let text = paragraphs.join("\n").trim().to_owned();
+    Ok((!text.is_empty()).then_some(text))
 }
 
 const HEADER: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n";
@@ -231,6 +298,8 @@ struct Slide {
     content: Option<String>,
     points: Vec<String>,
     cover: bool,
+    /// Speaker notes.
+    notes: Option<String>,
 }
 
 fn solid(color: &str) -> String {
@@ -468,6 +537,31 @@ fn text_shape(id: u32, name: &str, kind: &str, paragraphs: &str) -> String {
     )
 }
 
+const NOTES_GROUP: &str = "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>";
+
+/// The notes master every notes page inherits from: a slide thumbnail and a text area.
+fn notes_master() -> String {
+    format!(
+        "{HEADER}<p:notesMaster {NS}><p:cSld><p:bg><p:bgRef idx=\"1001\"><a:schemeClr val=\"bg1\"/></p:bgRef></p:bg><p:spTree>{NOTES_GROUP}<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Slide Image Placeholder 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\" noRot=\"1\" noChangeAspect=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"sldImg\" idx=\"2\"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"685800\" y=\"1143000\"/><a:ext cx=\"5486400\" cy=\"3086100\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/><a:ln w=\"12700\"><a:solidFill><a:prstClr val=\"black\"/></a:solidFill></a:ln></p:spPr></p:sp><p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Notes Placeholder 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" sz=\"quarter\" idx=\"3\"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"685800\" y=\"4400550\"/><a:ext cx=\"5486400\" cy=\"3600450\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr vert=\"horz\" lIns=\"91440\" tIns=\"45720\" rIns=\"91440\" bIns=\"45720\" rtlCol=\"0\"/><a:lstStyle/><a:p><a:pPr lvl=\"0\"/><a:r><a:rPr lang=\"en-US\"/><a:t>Click to edit Master text styles</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld><p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/><p:notesStyle><a:lvl1pPr marL=\"0\" algn=\"l\" defTabSz=\"914400\" rtl=\"0\" eaLnBrk=\"1\" latinLnBrk=\"0\" hangingPunct=\"1\"><a:defRPr sz=\"1200\" kern=\"1200\"><a:solidFill><a:schemeClr val=\"tx1\"/></a:solidFill><a:latin typeface=\"+mn-lt\"/><a:ea typeface=\"+mn-ea\"/><a:cs typeface=\"+mn-cs\"/></a:defRPr></a:lvl1pPr></p:notesStyle></p:notesMaster>"
+    )
+}
+
+/// One notes page: the slide thumbnail and the speaker notes, a paragraph per line.
+fn notes_slide(notes: &str) -> String {
+    let paragraphs: String = notes
+        .lines()
+        .map(|line| {
+            format!(
+                "<a:p><a:r><a:rPr lang=\"en-US\" dirty=\"0\"/><a:t>{}</a:t></a:r></a:p>",
+                escape(line)
+            )
+        })
+        .collect();
+    format!(
+        "{HEADER}<p:notes {NS}><p:cSld><p:spTree>{NOTES_GROUP}<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Slide Image Placeholder 1\"/><p:cNvSpPr><a:spLocks noGrp=\"1\" noRot=\"1\" noChangeAspect=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"sldImg\"/></p:nvPr></p:nvSpPr><p:spPr/></p:sp><p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Notes Placeholder 2\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>{paragraphs}</p:txBody></p:sp></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>"
+    )
+}
+
 fn slide_xml(slide: &Slide) -> String {
     let mut shapes = String::new();
     if slide.cover {
@@ -541,6 +635,7 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
             content: None,
             points: vec![],
             cover: true,
+            notes: None,
         });
     }
     let items = input["slides"]
@@ -566,8 +661,8 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
         if points.len() > MAX_POINTS {
             return Err(invalid(&format!("at most {MAX_POINTS} points per slide")));
         }
-        let (title, content) = (text("title"), text("content"));
-        if [&title, &content].iter().any(|value| {
+        let (title, content, notes) = (text("title"), text("content"), text("notes"));
+        if [&title, &content, &notes].iter().any(|value| {
             value
                 .as_ref()
                 .is_some_and(|text| text.chars().count() > MAX_TEXT_CHARS)
@@ -580,6 +675,7 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
             content,
             points,
             cover: false,
+            notes,
         });
     }
     if slides.is_empty() || slides.len() > MAX_SLIDES {
@@ -589,13 +685,30 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
     }
     let count = slides.len();
     let mut zip = Writer::default();
+    let has_notes = slides.iter().any(|slide| slide.notes.is_some());
+    let notes_overrides: String = if has_notes {
+        let pages: String = slides.iter().enumerate().filter(|(_, slide)| slide.notes.is_some()).map(|(index, _)| format!("<Override PartName=\"/ppt/notesSlides/notesSlide{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>", index + 1)).collect();
+        format!(
+            "<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/><Override PartName=\"/ppt/theme/theme2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>{pages}"
+        )
+    } else {
+        String::new()
+    };
     let slide_overrides: String = (1..=count).map(|n| format!("<Override PartName=\"/ppt/slides/slide{n}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>")).collect();
-    zip.add("[Content_Types].xml", format!("{HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/><Override PartName=\"/ppt/slideMasters/slideMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/><Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/><Override PartName=\"/ppt/slideLayouts/slideLayout2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/><Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>{slide_overrides}</Types>").as_bytes())?;
+    zip.add("[Content_Types].xml", format!("{HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/><Override PartName=\"/ppt/slideMasters/slideMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/><Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/><Override PartName=\"/ppt/slideLayouts/slideLayout2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/><Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>{slide_overrides}{notes_overrides}</Types>").as_bytes())?;
     zip.add("_rels/.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/officeDocument\" Target=\"ppt/presentation.xml\"/></Relationships>").as_bytes())?;
+    let notes_id = if has_notes {
+        format!(
+            "<p:notesMasterIdLst><p:notesMasterId r:id=\"rId{}\"/></p:notesMasterIdLst>",
+            count + 3
+        )
+    } else {
+        String::new()
+    };
     let ids: String = (1..=count)
         .map(|n| format!("<p:sldId id=\"{}\" r:id=\"rId{}\"/>", 255 + n, n + 1))
         .collect();
-    zip.add("ppt/presentation.xml", format!("{HEADER}<p:presentation {NS}><p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst><p:sldIdLst>{ids}</p:sldIdLst><p:sldSz cx=\"{WIDTH}\" cy=\"{HEIGHT}\"/><p:notesSz cx=\"6858000\" cy=\"9144000\"/></p:presentation>").as_bytes())?;
+    zip.add("ppt/presentation.xml", format!("{HEADER}<p:presentation {NS}><p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst>{notes_id}<p:sldIdLst>{ids}</p:sldIdLst><p:sldSz cx=\"{WIDTH}\" cy=\"{HEIGHT}\"/><p:notesSz cx=\"6858000\" cy=\"9144000\"/></p:presentation>").as_bytes())?;
     let slide_rels: String = (1..=count)
         .map(|n| {
             format!(
@@ -604,7 +717,7 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
             )
         })
         .collect();
-    zip.add("ppt/_rels/presentation.xml.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/slideMaster\" Target=\"slideMasters/slideMaster1.xml\"/>{slide_rels}<Relationship Id=\"rId{}\" Type=\"{REL}/theme\" Target=\"theme/theme1.xml\"/></Relationships>", count + 2).as_bytes())?;
+    zip.add("ppt/_rels/presentation.xml.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/slideMaster\" Target=\"slideMasters/slideMaster1.xml\"/>{slide_rels}<Relationship Id=\"rId{}\" Type=\"{REL}/theme\" Target=\"theme/theme1.xml\"/>{}</Relationships>", count + 2, if has_notes { format!("<Relationship Id=\"rId{}\" Type=\"{REL}/notesMaster\" Target=\"notesMasters/notesMaster1.xml\"/>", count + 3) } else { String::new() }).as_bytes())?;
     zip.add(
         "ppt/slideMasters/slideMaster1.xml",
         master(&palette).as_bytes(),
@@ -622,6 +735,14 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
         zip.add(&format!("ppt/slideLayouts/_rels/slideLayout{layout}.xml.rels"), format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/slideMaster\" Target=\"../slideMasters/slideMaster1.xml\"/></Relationships>").as_bytes())?;
     }
     zip.add("ppt/theme/theme1.xml", theme(&palette).as_bytes())?;
+    if has_notes {
+        zip.add("ppt/theme/theme2.xml", theme(&palette).as_bytes())?;
+        zip.add(
+            "ppt/notesMasters/notesMaster1.xml",
+            notes_master().as_bytes(),
+        )?;
+        zip.add("ppt/notesMasters/_rels/notesMaster1.xml.rels", format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/theme\" Target=\"../theme/theme2.xml\"/></Relationships>").as_bytes())?;
+    }
     for (index, slide) in slides.iter().enumerate() {
         let number = index + 1;
         let layout = if slide.cover { 1 } else { 2 };
@@ -629,7 +750,14 @@ pub(super) fn write(input: &Value) -> Result<Vec<u8>> {
             &format!("ppt/slides/slide{number}.xml"),
             slide_xml(slide).as_bytes(),
         )?;
-        zip.add(&format!("ppt/slides/_rels/slide{number}.xml.rels"), format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/slideLayout\" Target=\"../slideLayouts/slideLayout{layout}.xml\"/></Relationships>").as_bytes())?;
+        zip.add(&format!("ppt/slides/_rels/slide{number}.xml.rels"), format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/slideLayout\" Target=\"../slideLayouts/slideLayout{layout}.xml\"/>{}</Relationships>", if slide.notes.is_some() { format!("<Relationship Id=\"rId2\" Type=\"{REL}/notesSlide\" Target=\"../notesSlides/notesSlide{number}.xml\"/>") } else { String::new() }).as_bytes())?;
+        if let Some(notes) = &slide.notes {
+            zip.add(
+                &format!("ppt/notesSlides/notesSlide{number}.xml"),
+                notes_slide(notes).as_bytes(),
+            )?;
+            zip.add(&format!("ppt/notesSlides/_rels/notesSlide{number}.xml.rels"), format!("{HEADER}<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"{REL}/notesMaster\" Target=\"../notesMasters/notesMaster1.xml\"/><Relationship Id=\"rId2\" Type=\"{REL}/slide\" Target=\"../slides/slide{number}.xml\"/></Relationships>").as_bytes())?;
+        }
     }
     zip.finish()
 }

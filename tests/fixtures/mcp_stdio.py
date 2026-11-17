@@ -26,6 +26,8 @@ def tool(name):
     return value
 
 
+mutated = False  # `mutating` mode: the tool list changes after echo("mutate")
+
 for raw in sys.stdin:
     request = json.loads(raw)
     method = request.get('method')
@@ -56,6 +58,9 @@ for raw in sys.stdin:
         elif mode == 'cycle': response(id, {'tools': [tool('add')] if 'cursor' not in request['params'] else [], 'nextCursor': 'again'})
         elif mode == 'pages' and 'cursor' not in request['params']: response(id, {'tools': [tool('add')], 'nextCursor': 'next'})
         elif mode == 'pages': response(id, {'tools': [tool('echo')]})
+        elif mode == 'mutating' and mutated:
+            changed = tool('add'); changed['description'] = 'Add integers (v2)'
+            response(id, {'tools': [changed, tool('echo'), tool('extra')]})
         else: response(id, {'tools': [tool('add'), tool('echo')]})
     elif method == 'tools/call':
         params = request['params']
@@ -65,6 +70,7 @@ for raw in sys.stdin:
                     'meta': params.get('_meta'), 'pid': os.getpid()}) + '\n')
                 output.flush()
         if mode == 'exit': os._exit(0)
+        if mode == 'slow': time.sleep(0.6)
         if mode == 'wait':
             while True: time.sleep(60)
         if mode == 'invalid_json': print('{', flush=True); continue
@@ -87,4 +93,7 @@ for raw in sys.stdin:
             if mode == 'bad_output': value['structuredContent']['answer'] = 'invalid'
             if mode == 'env': value['structuredContent']['env_keys'] = sorted(os.environ)
         else: value = {'content': [{'type': 'text', 'text': json.dumps(params['arguments']['value'])}], 'structuredContent': {'value': params['arguments']['value']}}
+        if mode == 'mutating' and params['name'] == 'echo' and params['arguments'].get('value') == 'mutate':
+            mutated = True
+            send({'jsonrpc': '2.0', 'method': 'notifications/tools/list_changed'})
         response(id, value)

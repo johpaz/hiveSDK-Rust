@@ -61,7 +61,7 @@ impl Progress {
         let _guard = self
             .app
             .activity_lock
-            .lock()
+            .write()
             .map_err(|_| "Actividad bloqueada")?;
         let db = &self.app.db;
         let id = hex::encode(Sha256::digest(format!("{}\0{key}", self.run)));
@@ -224,7 +224,7 @@ pub async fn current(app: Arc<App>, user: String) -> Result<Value> {
     tokio::task::spawn_blocking(move || {
         let _guard = app
             .activity_lock
-            .lock()
+            .write()
             .map_err(|_| "Actividad bloqueada")?;
         snapshot(&app.db, &user)
     })

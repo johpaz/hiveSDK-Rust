@@ -1,0 +1,94 @@
+name: Gateway binaries
+
+# Compila `hive-gateway-rust` (el gateway local con el motor Rust) en cada plataforma, lo prueba con un arranque
+# real y lo empaqueta (archivo + SHA-256 + avisos de terceros) para quien lo use sin npm ni Python.
+# No hay build musl: el gateway enlaza libdbus (llavero del sistema), que en musl no se enlaza de forma estándar.
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      public:
+        description: 'Paquetes públicos: los avisos de terceros deben estar completos'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Gateway ${{ matrix.key }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: linux-x64-gnu
+            runner: ubuntu-24.04
+            container: quay.io/pypa/manylinux_2_28_x86_64:latest
+          - key: linux-arm64-gnu
+            runner: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64:latest
+          - key: darwin-x64
+            runner: macos-15-intel
+          - key: darwin-arm64
+            runner: macos-15
+          - key: win32-x64-msvc
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Toolchain del anfitrión
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Avisos de terceros vigentes antes de empaquetar
+        run: |
+          cargo fetch --locked
+          python scripts/third-party-notices.py --check
+      - name: Compilar (Linux, en manylinux para un glibc antiguo)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work '${{ matrix.container }}' bash -euxc '
+            dnf install -y dbus-devel pkgconf-pkg-config
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.100.0
+            . "$HOME/.cargo/env"
+            cargo build --release --locked -p hive-gateway-rust
+            ./target/release/hive-gateway-rust --help
+            chown -R '"$(id -u):$(id -g)"' target'
+      - name: Compilar (macOS y Windows)
+        if: runner.os != 'Linux'
+        run: cargo build --release --locked -p hive-gateway-rust
+      - name: Prueba de humo del binario compilado
+        run: |
+          bin=target/release/hive-gateway-rust
+          [ "$RUNNER_OS" = "Windows" ] && bin="$bin.exe"
+          "$bin" --help | grep -q 'HIVE_HOME'
+          # Sin perfil, el gateway debe negarse con su mensaje, no caerse.
+          empty="$(mktemp -d)"
+          if HIVE_HOME="$empty" "$bin" --check-config 2> err.txt; then echo "debía rechazar un perfil vacío"; exit 1; fi
+          grep -q 'HiveDB' err.txt
+      - name: Empaquetar
+        run: |
+          bin=target/release/hive-gateway-rust
+          [ "$RUNNER_OS" = "Windows" ] && bin="$bin.exe"
+          flags=""
+          [ "${{ inputs.public }}" = "true" ] && flags="--public"
+          python scripts/package-gateway.py --target '${{ matrix.key }}' --binary "$bin" $flags
+      - name: Guardar
+        uses: actions/upload-artifact@v7
+        with:
+          name: gateway-${{ matrix.key }}
+          if-no-files-found: error
+          path: |
+            dist/gateway/*.tar.gz
+            dist/gateway/*.zip
+            dist/gateway/*.sha256

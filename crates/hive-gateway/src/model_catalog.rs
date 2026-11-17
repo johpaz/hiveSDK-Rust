@@ -73,10 +73,17 @@ fn merge(
         {
             continue;
         }
-        let mut doc = old.as_ref().map(|r|r.doc.clone()).unwrap_or_else(||json!({"id":id,"provider_id":provider,"wire_id":wire,"enabled":false,"active":false,"source":"catalog","name":entry["name"].as_str().unwrap_or(wire)}));
+        // A model from the reviewed catalog is `catalog`; one the provider's own list gave us is `discovered`. The
+        // TypeScript Hive wipes and recreates every `catalog` row on start and keeps the rest, so a synced model
+        // must not be marked `catalog` or it would vanish the next time that app starts.
+        let mut doc = old.as_ref().map(|r|r.doc.clone()).unwrap_or_else(||json!({"id":id,"provider_id":provider,"wire_id":wire,"enabled":false,"active":false,"source":if reviewed == "2026-11-13" { "catalog" } else { "discovered" },"name":entry["name"].as_str().unwrap_or(wire)}));
         // Only repair absent metadata. Preserve custom names, prices, capabilities and context.
+        // The one exception is an entry the review marks `refresh_capabilities`: its capabilities
+        // were verified against the provider and supersede what an earlier sync stored.
         for field in ["model_type", "capabilities", "context_window"] {
-            if (doc[field].is_null()
+            let superseded = field == "capabilities" && entry["refresh_capabilities"] == true;
+            if (superseded
+                || doc[field].is_null()
                 || doc[field] == ""
                 || doc[field] == "[]"
                 || doc[field] == "unknown")
@@ -215,6 +222,49 @@ fn discovered(provider: &str, value: &Value) -> Result<Vec<Value>> {
     }
     Ok(result)
 }
+/// Fill `context_window` of each listed Ollama model from `/api/show` (`model_info.<family>.context_length`).
+/// A model that cannot be shown is left as it is; nothing here fails the sync.
+async fn ollama_context(client: &reqwest::Client, show_url: &str, entries: &mut [Value]) {
+    for entry in entries.iter_mut().take(200) {
+        if entry["context_window"].as_u64().is_some() {
+            continue;
+        }
+        let Some(name) = entry["wire_id"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(response) = client
+            .post(show_url)
+            .json(&json!({"model":name}))
+            .send()
+            .await
+        else {
+            continue;
+        };
+        if !response.status().is_success() {
+            continue;
+        }
+        let Ok(bytes) = integrations::limited(response, 2 * 1024 * 1024).await else {
+            continue;
+        };
+        let Ok(body) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+        if let Some(window) = context_length(&body) {
+            entry["context_window"] = json!(window);
+        }
+    }
+}
+
+/// The context length an Ollama `/api/show` reply declares: the first `*.context_length` of `model_info`.
+fn context_length(show: &Value) -> Option<u64> {
+    show["model_info"]
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| key.ends_with(".context_length"))
+        .filter_map(|(_, value)| value.as_u64().filter(|n| *n > 0))
+        .next()
+}
+
 pub(crate) fn sync(app: &App, provider: &str) -> Result<Value> {
     if provider == "piper" {
         return Err("Las voces locales se administran en la configuración de Piper".into());
@@ -292,6 +342,10 @@ pub(crate) fn sync(app: &App, provider: &str) -> Result<Value> {
                 None
             };
             let Some((_, token)) = &cursor else {
+                if p == "ollama" {
+                    // `/api/tags` lists models without their context length; `/api/show` has it.
+                    ollama_context(&client, &url.replace("/api/tags", "/api/show"), &mut all).await;
+                }
                 return Ok(all);
             };
             if !seen.insert(token.clone()) {
@@ -300,7 +354,10 @@ pub(crate) fn sync(app: &App, provider: &str) -> Result<Value> {
         }
         Err("El catálogo excede el límite de páginas; no se aplicaron cambios".into())
     })?;
-    let _guard = app.activity_lock.lock().map_err(|_| "Catálogo bloqueado")?;
+    let _guard = app
+        .activity_lock
+        .write()
+        .map_err(|_| "Catálogo bloqueado")?;
     let updated = merge(
         &app.db,
         provider,
@@ -314,6 +371,102 @@ pub(crate) fn sync(app: &App, provider: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_shipped_catalog_gives_a_window_to_the_nvidia_models_that_have_none_and_never_overrides_a_choice()
+     {
+        let snapshot = snapshot();
+        let nvidia = snapshot["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "nvidia")
+            .unwrap();
+        let window = |wire: &str| {
+            nvidia["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["wire_id"] == wire)
+                .unwrap()["context_window"]
+                .as_u64()
+        };
+        assert_eq!(
+            window("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"),
+            Some(262_144)
+        );
+        assert_eq!(
+            window("nvidia/nemotron-3.5-super-vl-120b-a12b"),
+            Some(1_000_000)
+        );
+        assert_eq!(window("z-ai/glm-5.3-flash"), Some(1_000_000));
+        assert_eq!(window("minimaxai/minimax-m3.1-flash"), Some(1_000_000));
+        assert_eq!(
+            window("nvidia/nemotron-3.5-bolt-e4b"),
+            Some(65_536),
+            "the conservative end of disagreeing sources"
+        );
+        // Merged into a database: a row without a window gets it; a row that has one keeps its own.
+        let dir = tempfile::tempdir().unwrap();
+        let db = HiveDB::open(dir.path()).unwrap();
+        db.col_put(
+            "providers",
+            "nvidia",
+            &json!({"id":"nvidia"}),
+            Default::default(),
+        )
+        .unwrap();
+        for (id, doc) in [
+            (
+                "nvidia/z-ai/glm-5.3-flash",
+                json!({"id":"nvidia/z-ai/glm-5.3-flash","provider_id":"nvidia","wire_id":"z-ai/glm-5.3-flash","name":"glm","model_type":"llm","enabled":true,"active":true}),
+            ),
+            (
+                "nvidia/nvidia/nemotron-3.5-bolt-e4b",
+                json!({"id":"nvidia/nvidia/nemotron-3.5-bolt-e4b","provider_id":"nvidia","wire_id":"nvidia/nemotron-3.5-bolt-e4b","name":"bolt","model_type":"llm","context_window":131_072,"enabled":true,"active":true}),
+            ),
+        ] {
+            db.col_put("models", id, &doc, Default::default()).unwrap();
+        }
+        ensure(&db).unwrap();
+        assert_eq!(
+            db.col_get("models", "nvidia/z-ai/glm-5.3-flash")
+                .unwrap()
+                .unwrap()
+                .doc["context_window"],
+            1_000_000
+        );
+        assert_eq!(
+            db.col_get("models", "nvidia/nvidia/nemotron-3.5-bolt-e4b")
+                .unwrap()
+                .unwrap()
+                .doc["context_window"],
+            131_072,
+            "what is already chosen is kept"
+        );
+    }
+
+    #[test]
+    fn an_ollama_show_reply_declares_its_context_length_in_model_info() {
+        assert_eq!(
+            context_length(
+                &json!({"model_info":{"general.architecture":"qwen3","qwen3.context_length":262144,"qwen3.block_count":36}})
+            ),
+            Some(262_144)
+        );
+        assert_eq!(
+            context_length(&json!({"model_info":{"llama.context_length":8192}})),
+            Some(8_192)
+        );
+        assert_eq!(
+            context_length(&json!({"model_info":{"llama.context_length":0}})),
+            None
+        );
+        assert_eq!(
+            context_length(&json!({"model_info":{"general.architecture":"x"}})),
+            None
+        );
+        assert_eq!(context_length(&json!({"details":{}})), None);
+    }
     #[test]
     fn additive_catalog_preserves_choices_and_reseller_namespaces() {
         let dir = tempfile::tempdir().unwrap();
@@ -353,6 +506,99 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .version
+        );
+    }
+    #[test]
+    fn a_reviewed_entry_marked_refresh_replaces_stored_capabilities_and_nothing_else_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = HiveDB::open(dir.path()).unwrap();
+        db.col_put(
+            "providers",
+            "nvidia",
+            &json!({"id":"nvidia"}),
+            Default::default(),
+        )
+        .unwrap();
+        let stored = json!({"id":"nvidia/a/one","provider_id":"nvidia","wire_id":"a/one","enabled":true,"active":true,"name":"Mi nombre","input_per_1m":3,
+            "model_type":"llm","capabilities":"[\"chat\"]"});
+        db.col_put("models", "nvidia/a/one", &stored, Default::default())
+            .unwrap();
+        let mut other = stored.clone();
+        other["id"] = json!("nvidia/a/two");
+        other["wire_id"] = json!("a/two");
+        db.col_put("models", "nvidia/a/two", &other, Default::default())
+            .unwrap();
+        let entries = [
+            json!({"wire_id":"a/one","model_type":"llm","capabilities":["chat","function_calling"],"refresh_capabilities":true,"availability_note":"verificado"}),
+            json!({"wire_id":"a/two","model_type":"llm","capabilities":["chat","function_calling"]}),
+        ];
+        assert_eq!(
+            merge(&db, "nvidia", &entries, "src", "2026-11-13").unwrap(),
+            2
+        );
+        let one = db.col_get("models", "nvidia/a/one").unwrap().unwrap().doc;
+        assert_eq!(
+            one["capabilities"], "[\"chat\",\"function_calling\"]",
+            "the reviewed capabilities replace the stored ones"
+        );
+        assert_eq!(
+            (
+                one["name"].clone(),
+                one["input_per_1m"].clone(),
+                one["active"].clone()
+            ),
+            (json!("Mi nombre"), json!(3), json!(true)),
+            "name, price and activation are the owner's"
+        );
+        assert_eq!(one["availability_note"], "verificado");
+        let two = db.col_get("models", "nvidia/a/two").unwrap().unwrap().doc;
+        assert_eq!(
+            two["capabilities"], "[\"chat\"]",
+            "without the mark a stored value is kept, as always"
+        );
+        // Idempotent: the same review changes nothing the second time.
+        assert_eq!(
+            merge(&db, "nvidia", &entries, "src", "2026-11-13").unwrap(),
+            0
+        );
+    }
+    #[test]
+    fn a_model_from_a_provider_sync_is_discovered_so_the_typescript_hive_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = HiveDB::open(dir.path().join("hivedb")).unwrap();
+        let entries = [json!({"wire_id":"a/new","model_type":"llm","capabilities":["chat"]})];
+        // The reviewed catalog: `catalog` rows, which the TypeScript Hive recreates from its own seed.
+        merge(&db, "nvidia", &entries, "src", "2026-11-13").unwrap();
+        assert_eq!(
+            db.col_get("models", "nvidia/a/new").unwrap().unwrap().doc["source"],
+            "catalog"
+        );
+        // A provider's own list: `discovered`, which that app never wipes.
+        let synced = [json!({"wire_id":"a/found","model_type":"llm","capabilities":["chat"]})];
+        merge(
+            &db,
+            "nvidia",
+            &synced,
+            "https://api.example/models",
+            "2026-11-16",
+        )
+        .unwrap();
+        assert_eq!(
+            db.col_get("models", "nvidia/a/found").unwrap().unwrap().doc["source"],
+            "discovered"
+        );
+        // A row that already exists keeps the source it has.
+        merge(
+            &db,
+            "nvidia",
+            &synced,
+            "https://api.example/models",
+            "2026-11-17",
+        )
+        .unwrap();
+        assert_eq!(
+            db.col_get("models", "nvidia/a/found").unwrap().unwrap().doc["source"],
+            "discovered"
         );
     }
     #[test]

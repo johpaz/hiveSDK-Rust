@@ -10,13 +10,8 @@ async fn blocking<T: Send + 'static>(
 ) -> Result<T> {
     tokio::task::spawn_blocking(work).await?
 }
-fn store(app: &App) -> Result<hive_agent_core::sessions::SessionStore> {
-    app.store
-        .lock()
-        .map_err(|_| "Store bloqueado")?
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| "Store cerrado".into())
+fn store(app: &App, user: &str) -> Result<hive_agent_core::sessions::SessionStore> {
+    app.store_handle(user)
 }
 fn tasks(call: &ToolCall) -> Result<Vec<SpecialistTask>> {
     if call.name == "task_delegate" {
@@ -70,6 +65,7 @@ pub(super) async fn execute<P: TurnProvider>(
     let host = app.clone();
     let id = group_id.clone();
     let tool = call.name.clone();
+    let user = context.user.clone();
     let (queue, group) = blocking(move || {
         if !host.delegation_enabled()?
             || (tool == "task_delegate_group"
@@ -80,7 +76,8 @@ pub(super) async fn execute<P: TurnProvider>(
         {
             return Err("La delegación está desactivada en HiveDB".into());
         }
-        let queue = store(&host)?.queue(&format!("gateway.specialists.{}", spec.objective_id))?;
+        let queue =
+            store(&host, &user)?.queue(&format!("gateway.specialists.{}", spec.objective_id))?;
         queue.open(QueuePolicy {
             max_payload_bytes: 1_048_576,
             ..Default::default()
@@ -178,7 +175,7 @@ fn prepare_child<P>(
     }
     let binding = &job.input.payload["delegation"];
     let worker = config::string(binding, "agent_id")?;
-    let selected = app.selection_for_agent(worker)?;
+    let selected = app.selection_for_user_agent(&context.user, worker)?;
     if selected.user != context.user
         || job.input.objective_id.as_deref() != Some(context.objective_id.as_str())
         || job.input.depth != context.depth + 1
@@ -186,7 +183,7 @@ fn prepare_child<P>(
         return Err("Especialista o presupuesto de otro ámbito".into());
     }
     let child = Arc::new(DurableEngineHandle::open(
-        app.store.clone(),
+        app.store_for(&context.user)?,
         worker.into(),
         config::string(binding, "session_id")?.into(),
         &selected.engine_config,
@@ -252,6 +249,7 @@ async fn execute_child<P: TurnProvider>(
             parent: Some(progress.agent.clone()),
             depth: job.input.depth,
             objective_id: context.objective_id.clone(),
+            attachments: vec![],
         };
         let answer = run_engine(
             executor.app.clone(),

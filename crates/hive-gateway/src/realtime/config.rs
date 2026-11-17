@@ -23,7 +23,7 @@ impl LiveConfig {
     pub fn load(app: &App, user: &str, query: &HashMap<String, String>) -> Result<Self> {
         let _guard = app
             .activity_lock
-            .lock()
+            .write()
             .map_err(|_| "Configuración Live bloqueada")?;
         let providers = config::docs(&app.db, "providers")?;
         let provider = providers

@@ -278,3 +278,258 @@ fn invalid_configs_do_not_create_an_engine() {
         .is_err()
     );
 }
+
+#[test]
+fn a_reply_with_reasoning_and_a_tool_call_is_accepted_and_the_reasoning_comes_back_in_the_next_request()
+ {
+    use hive_agent_core::ProviderState;
+    let mut e = engine(LoopPolicy::default(), 8);
+    let mut reply = call("a");
+    reply.provider_state = Some(ProviderState::Reasoning {
+        content: "primero busco".into(),
+    });
+    // This is what a real reasoning model (DeepSeek, NVIDIA) sends next to a tool call.
+    e.accept_reply(reply)
+        .expect("the engine accepts a reply that carries reasoning");
+    e.accept_tool("a", json!({"answer":42})).unwrap();
+    let Action::Model { request } = e.action() else {
+        panic!("expected model");
+    };
+    let assistant = request
+        .messages
+        .iter()
+        .find(|m| m.role == "assistant")
+        .unwrap();
+    assert_eq!(
+        assistant.provider_state,
+        Some(ProviderState::Reasoning {
+            content: "primero busco".into()
+        })
+    );
+    // Through the OpenAI wire body it is `reasoning_content` (the profile decides who gets it).
+    let body = request_body(request).unwrap();
+    assert_eq!(body["messages"][2]["reasoning_content"], "primero busco");
+    e.accept_reply(final_reply()).unwrap();
+    // An empty note is refused, not stored.
+    let mut e = engine(LoopPolicy::default(), 8);
+    let mut bad = call("a");
+    bad.provider_state = Some(ProviderState::Reasoning {
+        content: String::new(),
+    });
+    assert!(e.accept_reply(bad).is_err());
+}
+
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+fn shot(width: u32) -> serde_json::Value {
+    json!({"mime_type":"image/png","width":width,"data":PNG})
+}
+fn image_engine(policy: LoopPolicy) -> Engine {
+    engine(
+        LoopPolicy {
+            image_tools: vec!["lookup".into()],
+            max_tool_calls: 32,
+            max_identical_tool_results: None,
+            ..policy
+        },
+        16,
+    )
+}
+fn with_images(e: &Engine) -> Vec<usize> {
+    e.messages()
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| !m.attachments.is_empty())
+        .map(|(i, _)| i)
+        .collect()
+}
+
+#[test]
+fn a_picture_in_an_image_tools_result_reaches_the_model_as_an_image_not_as_base64_text() {
+    let mut e = image_engine(LoopPolicy::default());
+    e.accept_reply(call("a")).unwrap();
+    e.accept_tool("a", shot(640)).unwrap();
+    let messages = e.messages();
+    let tool = &messages[messages.len() - 2];
+    assert_eq!(tool.role, "tool");
+    let text = tool.content.as_deref().unwrap();
+    assert!(
+        !text.contains(PNG) && text.contains("\"image_attached\":true") && text.contains("640"),
+        "{text}"
+    );
+    let image = &messages[messages.len() - 1];
+    assert_eq!(image.role, "user");
+    assert!(image.content.as_deref().unwrap().contains("`lookup`"));
+    assert_eq!(image.attachments.len(), 1);
+    assert_eq!(image.attachments[0].media_type, "image/png");
+    assert_eq!(image.attachments[0].data.as_deref(), Some(PNG));
+    // The next request carries it, and the state survives a round trip.
+    let Action::Model { request } = e.action() else {
+        panic!("expected model")
+    };
+    assert_eq!(request.messages.last().unwrap().attachments.len(), 1);
+    let saved = serde_json::to_string(&e).unwrap();
+    let restored: Engine = serde_json::from_str(&saved).unwrap();
+    assert_eq!(with_images(&restored), with_images(&e));
+}
+
+#[test]
+fn pictures_of_a_batch_come_after_all_its_results_so_providers_accept_the_order() {
+    let mut e = image_engine(LoopPolicy::default());
+    let mut reply = call("a");
+    reply.tool_calls.push(call("b").tool_calls.remove(0));
+    e.accept_reply(reply).unwrap();
+    e.accept_tool("a", shot(1)).unwrap();
+    assert!(
+        with_images(&e).is_empty(),
+        "held until the batch is complete"
+    );
+    e.accept_tool("b", shot(2)).unwrap();
+    let roles: Vec<&str> = e.messages().iter().map(|m| m.role.as_str()).collect();
+    assert_eq!(
+        &roles[roles.len() - 4..],
+        ["tool", "tool", "user", "user"],
+        "{roles:?}"
+    );
+}
+
+#[test]
+fn only_the_newest_pictures_stay_in_the_context() {
+    let mut e = image_engine(LoopPolicy::default());
+    for (i, id) in ["a", "b", "c", "d"].iter().enumerate() {
+        e.accept_reply(call(id)).unwrap();
+        e.accept_tool(id, shot(i as u32)).unwrap();
+    }
+    let shown = with_images(&e);
+    assert_eq!(shown.len(), 2, "the default keeps the last two");
+    let old: Vec<&str> = e
+        .messages()
+        .iter()
+        .filter(|m| m.role == "user" && m.attachments.is_empty())
+        .filter_map(|m| m.content.as_deref())
+        .filter(|c| c.contains("removed from the context"))
+        .collect();
+    assert_eq!(old.len(), 2);
+    let mut one = image_engine(LoopPolicy {
+        max_tool_images: Some(1),
+        ..Default::default()
+    });
+    for id in ["a", "b"] {
+        one.accept_reply(call(id)).unwrap();
+        one.accept_tool(id, shot(1)).unwrap();
+    }
+    assert_eq!(with_images(&one).len(), 1);
+}
+
+#[test]
+fn only_declared_tools_can_attach_pictures_and_odd_results_stay_text() {
+    // Not declared: the same result stays as it came.
+    let mut plain = engine(LoopPolicy::default(), 8);
+    plain.accept_reply(call("a")).unwrap();
+    plain.accept_tool("a", shot(1)).unwrap();
+    assert!(with_images(&plain).is_empty());
+    assert!(
+        plain
+            .messages()
+            .last()
+            .unwrap()
+            .content
+            .as_deref()
+            .unwrap()
+            .contains(PNG)
+    );
+    // Declared, but not a picture / not valid.
+    for result in [
+        json!({"text":"hi"}),
+        json!({"mime_type":"text/plain","data":"aGk="}),
+        json!({"mime_type":"image/png","data":"not base64!"}),
+        json!("string"),
+    ] {
+        let mut e = image_engine(LoopPolicy::default());
+        e.accept_reply(call("a")).unwrap();
+        e.accept_tool("a", result).unwrap();
+        assert!(with_images(&e).is_empty());
+    }
+}
+
+#[test]
+fn a_token_budget_without_an_attachment_allowance_leaves_the_picture_out_and_says_so() {
+    use hive_agent_core::{InputTokenBudget, TokenEncoding};
+    let budget: InputTokenBudget =
+        serde_json::from_value(json!({"encoding":"cl100k_base","max_tokens":100000})).unwrap();
+    let _ = TokenEncoding::Cl100kBase;
+    let mut e = image_engine(LoopPolicy {
+        input_token_budget: Some(budget),
+        ..Default::default()
+    });
+    e.accept_reply(call("a")).unwrap();
+    e.accept_tool("a", shot(1)).unwrap();
+    assert!(with_images(&e).is_empty());
+    let tool = e
+        .messages()
+        .iter()
+        .rev()
+        .find(|m| m.role == "tool")
+        .unwrap();
+    assert!(tool.content.as_deref().unwrap().contains("image_omitted"));
+    assert!(
+        matches!(e.action(), Action::Model { .. }),
+        "the run continues"
+    );
+}
+
+#[test]
+fn image_tools_must_name_tools_of_the_engine_and_the_retention_is_bounded() {
+    for policy in [
+        LoopPolicy {
+            image_tools: vec!["nope".into()],
+            ..Default::default()
+        },
+        LoopPolicy {
+            max_tool_images: Some(0),
+            ..Default::default()
+        },
+        LoopPolicy {
+            max_tool_images: Some(17),
+            ..Default::default()
+        },
+    ] {
+        assert!(Engine::with_policy("test".into(), None, vec![tool()], 4, policy).is_err());
+    }
+}
+
+#[test]
+fn every_provider_adapter_sends_the_tool_picture_as_an_image_after_the_tool_result() {
+    let mut e = image_engine(LoopPolicy::default());
+    e.accept_reply(call("a")).unwrap();
+    e.accept_tool("a", shot(7)).unwrap();
+    let Action::Model { request } = e.action() else {
+        panic!("expected model")
+    };
+    // OpenAI-compatible: the tool message, then a user message with an image part.
+    let openai = request_body(request).unwrap();
+    let messages = openai["messages"].as_array().unwrap();
+    assert_eq!(messages[messages.len() - 2]["role"], "tool");
+    let last = &messages[messages.len() - 1];
+    assert_eq!(last["role"], "user");
+    assert!(
+        last["content"].to_string().contains("image_url")
+            && last["content"].to_string().contains(PNG),
+        "{last}"
+    );
+    // Anthropic.
+    let anthropic = hive_agent_core::provider::anthropic::request_body(request, 100).unwrap();
+    let text = anthropic["messages"].to_string();
+    assert!(
+        text.contains("tool_result") && text.contains("\"type\":\"image\"") && text.contains(PNG),
+        "{text}"
+    );
+    assert!(text.find("tool_result").unwrap() < text.find("\"type\":\"image\"").unwrap());
+    // Gemini.
+    let gemini = hive_agent_core::provider::gemini::request_body(request, 100).unwrap();
+    let text = gemini["contents"].to_string();
+    assert!(
+        text.contains("functionResponse") && text.contains("inlineData") && text.contains(PNG),
+        "{text}"
+    );
+    assert!(text.find("functionResponse").unwrap() < text.find("inlineData").unwrap());
+}

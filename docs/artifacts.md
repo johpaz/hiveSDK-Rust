@@ -1,6 +1,6 @@
 # Artefactos e información de imagen
 
-Un artefacto es un blob opaco que un agente produjo o recibió (una captura, un documento generado, un resultado demasiado grande para el contexto). Los bytes viven en disco y los metadatos en HiveDB, siempre dentro del ámbito de un inquilino. Sin dependencias nuevas.
+Un artefacto es un blob opaco que un agente produjo o recibió (una captura, un documento generado, un resultado demasiado grande para el contexto). Los bytes viven en disco y los metadatos en HiveDB, siempre dentro del ámbito de un inquilino. Las transformaciones de imagen necesitan la feature `images` (el crate `image` con solo PNG, JPEG, GIF y WebP); los bindings npm y Python la incluyen.
 
 ```js
 const artifacts = store.artifacts('/datos/artefactos');
@@ -43,3 +43,26 @@ Siete días por defecto, configurable por artefacto (`expires_in_days`; `null` =
 ## Evidencia
 
 `crates/hive-core/tests/artifacts.rs` (11 pruebas: cabeceras PNG/JPEG/GIF/WebP y rechazos acotados, tipo detectado, ruta generada, validación previa a escribir, ids no UUID, aislamiento entre inquilinos, hash y archivo ausente, lectura de texto, retención/expiración, borrado, paginación, herramientas con base64 byte a byte y comando por `SessionStore`) y una prueba por binding.
+
+## Transformar imágenes
+
+`artifact_transform_image` (y en Rust `image_transform::apply`) crea un **artefacto nuevo** a partir de uno de imagen; el original no se toca y el resultado hereda `run_id`/`task_id`.
+
+```js
+const out = await call('artifact_transform_image', { id, crop: { x: 0, y: 0, width: 800, height: 600 },
+  rotate: 90, max_width: 1024, format: 'jpeg', quality: 80 });
+// { artifact: {...nuevo...}, source: id, width, height }
+```
+
+Operaciones, **en este orden**: `crop` → `rotate` (90/180/270 en sentido horario) → `flip` (arriba↔abajo) → `flop` (izquierda↔derecha) → ajuste dentro de `max_width`×`max_height` → `grayscale` → codificación a `png`, `jpeg` o `webp` (por omisión, el formato de origen). Hace falta al menos un cambio.
+
+- **Ajuste.** Conserva la proporción y **nunca agranda**. Para dejar una foto lista para un modelo basta `max_width`/`max_height` de 1024.
+- **Orientación EXIF.** La de un JPEG (foto de teléfono) se aplica antes de todo, así que sale derecha.
+- **JPEG** no tiene transparencia: lo transparente se aplana sobre **blanco** (no negro). `quality` 1–100, 85 por omisión; solo afecta a JPEG.
+- **WebP se escribe sin pérdida** (mismos píxeles, pero pesa más que un JPEG). Un GIF se lee como su **primer fotograma** y sale como PNG: no hay animación.
+- **Se pierde** el perfil de color y los metadatos. No hay AVIF ni HEIC, filtros ni texto.
+- **Límites (imagen hostil).** Antes de decodificar, la cabecera debe declarar como mucho **50 megapíxeles**; el decodificador tiene 256 MiB de memoria máxima; el lado de salida, como mucho 16 384; el resultado cuenta contra los 25 MiB del artefacto. Una imagen truncada o corrupta es un error limpio, nunca un pánico. Un recorte fuera de la imagen, una rotación distinta de 90/180/270 o una calidad fuera de 1–100 se rechazan antes de decodificar.
+- **Aislamiento.** Lee y escribe en el inquilino del almacén; el de otro no puede transformarla.
+
+**Validación:** `tests/image_transform.rs` con imágenes reales de cuadrantes de color (píxel a píxel): recorte, giros, espejos, ajuste sin agrandar, conversiones y calidad, WebP idéntico al releerlo, transparencia sobre blanco, escala de grises, GIF a PNG, **orientación EXIF 6 inyectada a mano**, cabecera de 100 MP rechazada en milisegundos, cuerpo truncado, entradas inválidas y la herramienta (original intacto, herencia de `run_id`, otro inquilino, no-imagen); más una prueba de extremo a extremo en npm y otra en Python.
+

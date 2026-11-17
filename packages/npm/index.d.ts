@@ -77,6 +77,10 @@ export interface RunStats {
 export interface LoopPolicy {
   max_tool_calls?: number;
   max_identical_tool_results?: number | null;
+  /** Tools whose result may carry a picture (`mime_type: image/*` plus base64 `data`, as computer_screenshot returns). The model is shown it as an image after the tool results instead of as base64 text. They must be tools of the agent. */
+  image_tools?: string[];
+  /** How many of those pictures stay in the context (1 to 16, default 2); older ones are replaced by a short note. */
+  max_tool_images?: number;
   max_total_tokens?: number | null;
   max_output_tokens?: number | null;
   max_total_output_tokens?: number | null;
@@ -92,8 +96,24 @@ export interface RunResult {
 }
 export interface RunOptions { signal?: AbortSignal }
 export type AgentStreamEvent = Action | Exclude<ModelStreamEvent, {type: 'reply'}> | { type: 'result'; result: RunResult };
+/** Declarative tool policy, evaluated natively: first matching rule wins, else `default` (allow). See docs/policy.md. */
+export interface ToolPolicyCondition { arg: string; op: 'equals' | 'not_equals' | 'prefix' | 'suffix' | 'contains' | 'one_of' | 'exists'; value?: Json }
+export interface ToolPolicyRule { tools: string[]; decision: 'allow' | 'deny' | 'ask'; reason?: string; when?: ToolPolicyCondition[] }
+export interface ToolPolicy { default?: 'allow' | 'deny' | 'ask'; default_reason?: string; rules?: ToolPolicyRule[] }
+export type ToolDecision = 'allow' | 'deny' | 'ask';
+export interface AgentHooks {
+  /** Before a tool runs, with the policy's verdict. Return {decision, reason} to tighten it (never to loosen). Throwing denies. */
+  beforeTool?(context: { call: ToolCall; verdict: { decision: ToolDecision; reason: string | null }; signal: AbortSignal }): { decision?: ToolDecision; reason?: string } | void | Promise<{ decision?: ToolDecision; reason?: string } | void>;
+  /** Asked when the decision is `ask`. Resolve true/false or {approved, reason}. With no hook, `ask` is denied. May wait for a person; cancelling the run cancels it. */
+  approve?(context: { call: ToolCall; reason: string | null; signal: AbortSignal }): boolean | { approved: boolean; reason?: string } | Promise<boolean | { approved: boolean; reason?: string }>;
+  /** After a tool ran: return {result} to replace what the model sees (redaction). Throwing withholds the output. */
+  afterTool?(context: { call: ToolCall; result: Json; signal: AbortSignal }): { result?: Json } | void | Promise<{ result?: Json } | void>;
+}
 export interface AgentOptions {
   objective?: Objective;
+  /** Allow/deny/ask rules for tool calls. Denied calls are not run; the model gets a POLICY_DENIED error. */
+  toolPolicy?: ToolPolicy;
+  hooks?: AgentHooks;
   model: string;
   system?: string;
   tools?: Tool[];
@@ -171,12 +191,20 @@ export class PresetProvider implements Provider {
 }
 export class Anthropic implements Provider {
   constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number;
-    apiVersion?: string; defaultMaxOutputTokens?: number; resilience?: Resilience });
+    apiVersion?: string; defaultMaxOutputTokens?: number; contextWindow?: number; resilience?: Resilience });
   complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
   stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
 }
 export class Gemini implements Provider {
-  constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number; defaultMaxOutputTokens?: number; resilience?: Resilience });
+  /** Without `defaultMaxOutputTokens`, the output limit is derived from `contextWindow` (15%, at most 32768), else 4096. */
+  constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number; defaultMaxOutputTokens?: number; contextWindow?: number; resilience?: Resilience });
+  complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
+  stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
+}
+/** Ollama's native chat API: `numCtx` is the context window it is asked for (Ollama otherwise silently cuts the prompt to a small default), `keepAlive` a duration such as "10m", `think` turns thinking on or off. Images only as inline data. */
+export class Ollama implements Provider {
+  constructor(options?: { baseUrl?: string; apiKey?: string; timeoutMs?: number; maxResponseBytes?: number; defaultMaxOutputTokens?: number;
+    contextWindow?: number; numCtx?: number; keepAlive?: string; think?: boolean; resilience?: Resilience });
   complete(request: ModelRequest, context?: ProviderContext): Promise<ModelReply>;
   stream(request: ModelRequest, context?: ProviderContext): AsyncIterable<ModelStreamEvent>;
 }
@@ -187,9 +215,12 @@ export class SummaryUncertain extends ToolOperationUncertain { constructor(messa
 export class TriggerUncertain extends ToolOperationUncertain { constructor(message?: string, cause?: unknown) }
 export type EventTriggerSchedule = { kind: 'event' };
 export type CalendarTriggerSchedule = { kind: 'at'; unixMs: number }
-  | { kind: 'interval'; everyMs: number; anchorUnixMs?: number };
+  | { kind: 'interval'; everyMs: number; anchorUnixMs?: number }
+  /** A calendar expression (five fields, or six with seconds) in an IANA time zone, e.g. `{ kind: 'cron', expression: '0 8 * * MON-FRI', timezone: 'America/Bogota' }`. See docs/triggers.md. */
+  | { kind: 'cron'; expression: string; timezone: string; domAndDow?: boolean };
 export type TriggerSchedule = EventTriggerSchedule | CalendarTriggerSchedule;
-export interface CalendarTriggerInput { scheduled_for_unix_ms: number; observed_unix_ms: number; skipped_occurrences: number }
+/** `skipped_is_lower_bound` appears (true) on a cron claim that missed more than 100 occurrences: `skipped_occurrences` is then "at least 100". */
+export interface CalendarTriggerInput { scheduled_for_unix_ms: number; observed_unix_ms: number; skipped_occurrences: number; skipped_is_lower_bound?: true }
 export interface TriggerContext {
   objective_id: string | null; trigger_id: string; occurrence_key: string; execution_id: string;
   readonly signal: AbortSignal;
@@ -230,7 +261,8 @@ export interface VerificationEntry {
 /** Stored kernel state; timestamps and field names use the shared Rust contract. */
 export interface NativeTriggerSnapshot {
   schedule: { kind: 'event' } | { kind: 'at'; unix_ms: number }
-    | { kind: 'interval'; every_ms: number; anchor_unix_ms: number | null };
+    | { kind: 'interval'; every_ms: number; anchor_unix_ms: number | null }
+    | { kind: 'cron'; expression: string; timezone: string; dom_and_dow: boolean };
   enabled: boolean; anchor_unix_ms: number | null; next_due_unix_ms: number | null; active_occurrence: string | null;
   executions: Record<string, { execution_id: string; input: Json; outcome: { value: Json } | null }>;
 }
@@ -282,19 +314,53 @@ export class Objective {
 }
 export class McpOperationUncertain extends ToolOperationUncertain { constructor(message?: string) }
 export interface McpConnectionOptions {
-  protocolVersion?: '2025-06-18' | '2025-11-25'; timeoutMs?: number; maxMessageBytes?: number;
+  protocolVersion?: '2024-11-05' | '2025-03-26' | '2025-06-18' | '2025-11-25'; timeoutMs?: number; maxMessageBytes?: number;
   maxTools?: number; maxPages?: number; maxMessages?: number;
 }
 export interface McpStdioOptions extends McpConnectionOptions {
   transport?: 'stdio'; command: string; args?: string[]; env?: Record<string, string>; cwd?: string;
 }
 export interface McpHttpOptions extends McpConnectionOptions { transport: 'http'; url: string; headers?: Record<string, string> }
+/** The classic HTTP+SSE transport (a long-lived event stream plus POSTs), as n8n's MCP Server Trigger speaks it. The message endpoint the server names must be on the stream's origin. Default `protocolVersion` is `2025-03-26`. */
+export interface McpSseOptions extends McpConnectionOptions { transport: 'sse'; url: string; headers?: Record<string, string> }
 export interface McpRemoteTool { name: string; description: string; inputSchema: Record<string, Json>; outputSchema?: Record<string, Json>; annotations?: Json }
+export type McpServerOptions = (McpStdioOptions | McpHttpOptions | McpSseOptions) & { /** false keeps the server in the set without connecting it. */ enabled?: boolean };
+export interface McpServerStatus {
+  name: string; state: 'connected' | 'failed' | 'disabled' | 'closed'; tools: number; tools_changed: boolean; error: string | null;
+  config_hash: string; server: { name?: string; version?: string } | null;
+}
+/** Tools by name that appeared, disappeared or changed description/input schema. */
+export interface McpToolsDiff { added: string[]; removed: string[]; changed: string[] }
+export interface McpApplyReport {
+  added: string[]; removed: string[]; restarted: string[]; unchanged: string[]; disabled: string[]; failed: Record<string, string>;
+}
+export interface McpManagedTool extends McpRemoteTool { server: string; tool: string }
+/**
+ * Several named MCP servers that can be reloaded while running; nothing reconnects or retries on its own
+ * (an uncertain call closes its server). Tool names are `<server>__<tool>`. See docs/mcp.md.
+ */
+export class McpManager {
+  constructor();
+  /** Reconcile the running set with `servers` (the whole desired set). A server that fails to connect is reported in `failed`; an invalid set changes nothing. drainMs lets a running call finish before its server is closed. */
+  apply(servers: Record<string, McpServerOptions>, options?: { drainMs?: number }): Promise<McpApplyReport>;
+  reconnect(name: string): Promise<{ server: string; connected: true }>;
+  /** List one connected server's tools again. `catalog` and `tools()` use the new list; an Agent already created keeps the tools it had. */
+  refreshTools(name: string): Promise<McpToolsDiff & { server: string }>;
+  readonly status: McpServerStatus[];
+  readonly catalog: McpManagedTool[];
+  tools(options?: { servers?: string[]; names?: string[] }): ExecutableTool[];
+  call(server: string, tool: string, arguments: Record<string, Json>, options?: { signal?: AbortSignal; context?: Record<string, Json> }): Promise<Json>;
+  close(): Promise<void>;
+}
 export class McpClient {
   private constructor();
-  static connect(options: McpStdioOptions | McpHttpOptions): Promise<McpClient>;
+  static connect(options: McpStdioOptions | McpHttpOptions | McpSseOptions): Promise<McpClient>;
   readonly info: Record<string, Json>;
   readonly catalog: McpRemoteTool[];
+  /** The server announced a change of its tool list (seen after the next exchange; `refreshTools()` lists now). */
+  readonly toolsChanged: boolean;
+  /** List the tools again; `catalog` and `tools()` use the new list. */
+  refreshTools(): Promise<McpToolsDiff>;
   listResources(options?: { cursor?: string; signal?: AbortSignal }): Promise<{ resources: McpResource[]; nextCursor?: string }>;
   readResource(uri: string, options?: { signal?: AbortSignal }): Promise<{ contents: McpResourceContent[] }>;
   listPrompts(options?: { cursor?: string; signal?: AbortSignal }): Promise<{ prompts: McpPrompt[]; nextCursor?: string }>;
@@ -406,6 +472,28 @@ export interface ObscuraPolicy {
   install_dir?: string;
   startup_timeout_ms?: number; call_timeout_ms?: number;
 }
+/** Policy for the computer_* tools (screenshots, pointer, keyboard); they exist only when this is configured, and input is a separate grant. See docs/computer-use.md. */
+export interface ComputerPolicy {
+  /** `auto`: portals on a Wayland session, X11 otherwise. */
+  backend?: 'auto' | 'x11' | 'portal';
+  /** Offer computer_screenshot (default true). */
+  allow_screenshot?: boolean;
+  /** Offer the pointer and keyboard tools (default false). */
+  allow_input?: boolean;
+  /** Longest side of the screenshot the model sees, and so of its coordinate space (default 1280). */
+  max_dimension?: number;
+  /** Actions allowed until computerReset() (default 200). */
+  max_actions?: number;
+  action_timeout_ms?: number;
+  /** Includes the person answering the desktop's consent dialog on Wayland (default 120000). */
+  start_timeout_ms?: number;
+  max_text_chars?: number;
+  /** X11 display such as ":0"; $DISPLAY when omitted. */
+  display?: string;
+  /** Absolute file where the portal's restore token is kept (mode 0600) so the next start does not ask again. */
+  restore_token_path?: string;
+}
+export interface ComputerStatus { stopped: boolean; actions: number }
 export interface NativeToolsConfig {
   /** Existing directory that every filesystem path and command cwd must stay inside. */
   root: string;
@@ -420,6 +508,8 @@ export interface NativeToolsConfig {
   office?: OfficePolicy;
   /** Enables the obscura_* browser tools. Disabled when omitted. */
   obscura?: ObscuraPolicy;
+  /** Enables the computer_* desktop tools. Disabled when omitted. */
+  computer?: ComputerPolicy;
 }
 export interface NativeToolDefinition extends ToolDefinition { allow_repeated_results: boolean }
 export interface ExecutableTool extends NativeToolDefinition { execute(arguments: Record<string, Json>, context?: ToolContext): Promise<Json> }
@@ -433,7 +523,13 @@ export class NativeTools {
   /** Download and install the latest Obscura (checked against its published SHA-256) into obscura.install_dir, ~/.hive/bin by default. An existing install is kept unless update is true. */
   installObscura(options?: { update?: boolean }): Promise<{ path: string; version: string; asset: string; sha256: string; already_current: boolean }>;
   cancel(): void;
-  /** Stops the Obscura session the obscura_* tools started, if any; the next call starts a new one. */
+  /** Host kill switch for computer_*: interrupts an action in progress (reported as uncertain, held keys released) and refuses every later one until computerResume(). */
+  computerStop(): Promise<ComputerStatus>;
+  computerResume(): Promise<ComputerStatus>;
+  /** Gives the computer_* tools a fresh action budget. */
+  computerReset(): Promise<ComputerStatus>;
+  computerStatus(): Promise<ComputerStatus>;
+  /** Stops the Obscura session the obscura_* tools started, if any, and ends the desktop session; the next call starts a new one. */
   close(): Promise<void>;
 }
 

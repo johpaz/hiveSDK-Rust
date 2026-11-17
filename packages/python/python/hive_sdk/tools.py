@@ -55,6 +55,21 @@ class NativeTools:
     def cancel(self) -> None:
         for request in tuple(self._active): request.cancel()
 
+    async def computer_stop(self) -> dict[str, Any]:
+        """Host kill switch for the computer_* tools: interrupts an action in progress (reported as uncertain, held
+        keys released) and refuses every later one until ``computer_resume``."""
+        return await self._call({'op': 'computer_stop'})
+
+    async def computer_resume(self) -> dict[str, Any]:
+        return await self._call({'op': 'computer_resume'})
+
+    async def computer_reset(self) -> dict[str, Any]:
+        """Give the computer_* tools a fresh action budget."""
+        return await self._call({'op': 'computer_reset'})
+
+    async def computer_status(self) -> dict[str, Any]:
+        return await self._call({'op': 'computer_status'})
+
     async def close(self) -> None:
         """Stop the Obscura session the obscura_* tools started, if any; the next call starts a new one."""
         await storage_call(self._native.close)

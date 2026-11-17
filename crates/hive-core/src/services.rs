@@ -464,8 +464,10 @@ impl CatalogServices {
                     .iter()
                     .map(|(_, source)| {
                         let skill = skills::parse(source)?;
-                        Ok(json!({"name":skill.name,"description":skill.data["description"],
-                            "version":skill.data["version"],"tools":skill.data["tools"]}))
+                        Ok(
+                            json!({"name":skill.name,"description":skill.data["description"],
+                            "version":skill.data["version"],"tools":skill.data["tools"]}),
+                        )
                     })
                     .collect::<Result<Vec<_>>>()?,
             ),

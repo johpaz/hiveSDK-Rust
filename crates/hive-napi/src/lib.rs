@@ -219,6 +219,21 @@ pub fn dispatch(command: String) -> napi::Result<String> {
     hive_agent_core::dispatch(&command).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
+/// Evaluate a declarative tool policy for one call: `{decision, rule, reason}` as JSON.
+#[napi]
+pub fn evaluate_tool_policy(
+    policy: String,
+    tool: String,
+    arguments: String,
+) -> napi::Result<String> {
+    let parse = |text: &str| {
+        serde_json::from_str(text).map_err(|e| napi::Error::from_reason(e.to_string()))
+    };
+    hive_agent_core::policy::evaluate_json(parse(&policy)?, &tool, parse(&arguments)?)
+        .map(|value| value.to_string())
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
 #[napi]
 pub struct NativeDurableEngine {
     inner: Arc<hive_agent_core::durable_handle::DurableEngineHandle>,
@@ -274,7 +289,19 @@ impl NativeMcpClient {
     }
     #[napi]
     pub fn catalog(&self) -> napi::Result<String> {
-        serde_json::to_string(self.inner.tools())
+        serde_json::to_string(&*self.inner.tools())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+    #[napi]
+    pub fn tools_changed(&self) -> bool {
+        self.inner.tools_changed()
+    }
+    #[napi]
+    pub async fn refresh_tools(&self) -> napi::Result<String> {
+        self.inner
+            .refresh_tools()
+            .await
+            .map(|value| value.to_string())
             .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
     #[napi]
@@ -308,6 +335,81 @@ impl NativeMcpClient {
 impl Drop for NativeMcpClient {
     fn drop(&mut self) {
         self.inner.cancel();
+    }
+}
+/// Several named MCP servers that can be reloaded while running.
+#[napi]
+pub struct NativeMcpManager {
+    inner: Arc<hive_agent_core::mcp::McpManager>,
+}
+#[napi]
+pub fn create_mcp_manager() -> NativeMcpManager {
+    NativeMcpManager {
+        inner: Arc::new(hive_agent_core::mcp::McpManager::new()),
+    }
+}
+#[napi]
+impl NativeMcpManager {
+    #[napi]
+    pub async fn apply(&self, desired: String, drain_ms: u32) -> napi::Result<String> {
+        let desired =
+            serde_json::from_str(&desired).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.inner
+            .apply(desired, u64::from(drain_ms))
+            .await
+            .map(|value| value.to_string())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+    #[napi]
+    pub async fn reconnect(&self, name: String) -> napi::Result<String> {
+        self.inner
+            .reconnect(&name)
+            .await
+            .map(|value| value.to_string())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+    #[napi]
+    pub async fn refresh_tools(&self, name: String) -> napi::Result<String> {
+        self.inner
+            .refresh_tools(&name)
+            .await
+            .map(|value| value.to_string())
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    }
+    #[napi]
+    pub fn status(&self) -> String {
+        self.inner.status().to_string()
+    }
+    #[napi]
+    pub fn catalog(&self) -> String {
+        self.inner.catalog().to_string()
+    }
+    #[napi]
+    pub async fn start_call(
+        &self,
+        server: String,
+        tool: String,
+        arguments: String,
+        context: String,
+    ) -> napi::Result<NativeMcpRequest> {
+        let parse = |text: &str| {
+            serde_json::from_str(text).map_err(|e| napi::Error::from_reason(e.to_string()))
+        };
+        Ok(NativeMcpRequest {
+            inner: self
+                .inner
+                .start_call(&server, &tool, parse(&arguments)?, parse(&context)?)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?,
+        })
+    }
+    #[napi]
+    pub async fn close(&self) {
+        self.inner.close_all().await;
+    }
+}
+impl Drop for NativeMcpManager {
+    fn drop(&mut self) {
+        self.inner.cancel_all();
     }
 }
 #[napi]

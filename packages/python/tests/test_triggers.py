@@ -50,6 +50,25 @@ class TriggerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(trigger.inspect()['next_due_unix_ms'], now())
         self.assertIsNone(await trigger.tick()); self.assertEqual(objective.inspect()['tool_calls'], 1)
 
+    async def test_cron_trigger_claims_its_latest_due_occurrence_once_and_rejects_invalid_expressions(self):
+        import asyncio
+        objective = Objective(); inputs = []
+        def callback(value, context): inputs.append(value); return 'done'
+        trigger = objective.trigger('cron', {'kind': 'cron', 'expression': '* * * * * *', 'timezone': 'America/Bogota'}, callback)
+        self.assertEqual(trigger.inspect()['schedule'], {'kind': 'cron', 'expression': '* * * * * *', 'timezone': 'America/Bogota', 'dom_and_dow': False})
+        self.assertIsNone(await trigger.tick())
+        trigger.enable()
+        self.assertIsNone(await trigger.tick())
+        await asyncio.sleep(1.3)
+        self.assertEqual((await trigger.tick())['result'], 'done')
+        self.assertEqual(len(inputs), 1)
+        self.assertLessEqual(inputs[0]['scheduled_for_unix_ms'], inputs[0]['observed_unix_ms'])
+        self.assertNotIn('skipped_is_lower_bound', inputs[0])
+        self.assertEqual(objective.inspect()['tool_calls'], 1)
+        for schedule in ({'kind': 'cron', 'expression': '80 * * * *', 'timezone': 'UTC'}, {'kind': 'cron', 'expression': '* * * * *', 'timezone': 'Mars/Base'}, {'kind': 'cron', 'expression': '', 'timezone': 'UTC'}):
+            with self.assertRaises(RuntimeError):
+                objective.trigger('bad', schedule, lambda value, context: None)
+
     async def test_one_shot_watcher_is_explicit_and_finishes_at_single_allowance(self):
         objective = Objective({'max_tool_calls': 1}); calls = []
         def callback(value, context): calls.append(True); return 'done'

@@ -448,21 +448,66 @@ impl ArtifactStore {
         let id = json!({"type":"string","minLength":36,"maxLength":36});
         let kind = json!({"type":"string","minLength":1,"maxLength":64});
         let mime = json!({"type":"string","minLength":3,"maxLength":255});
-        [
-            ("artifact_save", "Store text or base64 content as an artifact and return its id and metadata.",
-             json!({"kind":kind,"mime_type":mime,"text":{"type":"string"},"data":{"type":"string"},
+        #[allow(unused_mut)]
+        let mut specs = vec![
+            (
+                "artifact_save",
+                "Store text or base64 content as an artifact and return its id and metadata.",
+                json!({"kind":kind,"mime_type":mime,"text":{"type":"string"},"data":{"type":"string"},
                     "expires_in_days":{"type":["number","null"],"exclusiveMinimum":0,"maximum":3650}}),
-             vec!["kind", "mime_type"]),
-            ("artifact_inspect", "Metadata of an artifact, including its status.", json!({"id":id}), vec!["id"]),
-            ("artifact_read", "Read a text artifact, or any artifact as base64 when encoding is base64.",
-             json!({"id":id,"encoding":{"type":"string","enum":["text","base64"]}}), vec!["id"]),
-            ("artifact_list", "List artifacts of this tenant.", json!({"limit":{"type":"integer","minimum":1,"maximum":200},"cursor":{"type":"string"}}), vec![]),
-            ("artifact_delete", "Delete an artifact's content and mark it deleted.", json!({"id":id}), vec!["id"]),
-            ("image_info", "Format and pixel size of a PNG, JPEG, GIF or WebP artifact, read from its header.", json!({"id":id}), vec!["id"]),
-        ]
-        .into_iter()
-        .map(|(name, description, properties, required)| json_tool(name, description, properties, required))
-        .collect()
+                vec!["kind", "mime_type"],
+            ),
+            (
+                "artifact_inspect",
+                "Metadata of an artifact, including its status.",
+                json!({"id":id}),
+                vec!["id"],
+            ),
+            (
+                "artifact_read",
+                "Read a text artifact, or any artifact as base64 when encoding is base64.",
+                json!({"id":id,"encoding":{"type":"string","enum":["text","base64"]}}),
+                vec!["id"],
+            ),
+            (
+                "artifact_list",
+                "List artifacts of this tenant.",
+                json!({"limit":{"type":"integer","minimum":1,"maximum":200},"cursor":{"type":"string"}}),
+                vec![],
+            ),
+            (
+                "artifact_delete",
+                "Delete an artifact's content and mark it deleted.",
+                json!({"id":id}),
+                vec!["id"],
+            ),
+            (
+                "image_info",
+                "Format and pixel size of a PNG, JPEG, GIF or WebP artifact, read from its header.",
+                json!({"id":id}),
+                vec!["id"],
+            ),
+        ];
+        #[cfg(feature = "images")]
+        {
+            let side = json!({"type":"integer","minimum":1,"maximum":crate::image_transform::MAX_OUTPUT_SIDE});
+            specs.push((
+                "artifact_transform_image",
+                "Make a new image artifact from a PNG, JPEG, GIF (first frame) or WebP one: crop, rotate, flip, fit inside max_width x max_height (never enlarges), grayscale and convert to png, jpeg or lossless webp. The source is kept. Applied in that order; at least one change is required.",
+                json!({"id":id,
+                    "crop":{"type":"object","properties":{"x":{"type":"integer","minimum":0},"y":{"type":"integer","minimum":0},"width":side,"height":side},"required":["x","y","width","height"],"additionalProperties":false},
+                    "rotate":{"type":"integer","enum":[90,180,270]},"flip":{"type":"boolean"},"flop":{"type":"boolean"},
+                    "max_width":side,"max_height":side,"grayscale":{"type":"boolean"},
+                    "format":{"type":"string","enum":["png","jpeg","webp"]},"quality":{"type":"integer","minimum":1,"maximum":100}}),
+                vec!["id"],
+            ));
+        }
+        specs
+            .into_iter()
+            .map(|(name, description, properties, required)| {
+                json_tool(name, description, properties, required)
+            })
+            .collect()
     }
 
     pub fn execute_tool(&self, name: &str, arguments: Value) -> Result<Value> {
@@ -518,6 +563,32 @@ impl ArtifactStore {
                     image::info(&bytes)
                         .ok_or_else(|| invalid("artifact is not a recognised image"))?,
                 )?
+            }
+            #[cfg(feature = "images")]
+            "artifact_transform_image" => {
+                let mut options = arguments.clone();
+                options
+                    .as_object_mut()
+                    .ok_or_else(|| invalid("arguments must be an object"))?
+                    .remove("id");
+                let transform: crate::image_transform::Transform =
+                    serde_json::from_value(options).map_err(|_| invalid("invalid transform"))?;
+                let bytes = self.read_bytes(id)?;
+                let source = self
+                    .get(id)?
+                    .ok_or_else(|| Error::State("ARTIFACT_NOT_FOUND".into()))?;
+                let done = crate::image_transform::apply(&bytes, &transform)?;
+                let artifact = self.create(
+                    &done.bytes,
+                    NewArtifact {
+                        kind: "image".into(),
+                        mime_type: done.format.mime_type().into(),
+                        run_id: source.run_id,
+                        task_id: source.task_id,
+                        ..Default::default()
+                    },
+                )?;
+                json!({"artifact":artifact,"source":id,"width":done.width,"height":done.height})
             }
             _ => unreachable!(),
         })

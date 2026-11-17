@@ -257,7 +257,12 @@ impl DurableQueue {
                 review_job: None,
                 verdict: None,
             });
-            self.emit(meta, &mut change.writes, "goal.transition", json!({"goal_id":goal.id,"status":goal.status,"round":1,"error":null}))?;
+            self.emit(
+                meta,
+                &mut change.writes,
+                "goal.transition",
+                json!({"goal_id":goal.id,"status":goal.status,"round":1,"error":null}),
+            )?;
             self.save_goal(&goal, 0, &mut change.writes)?;
             Ok(Change {
                 writes: change.writes,

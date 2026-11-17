@@ -2,7 +2,7 @@ THIRD-PARTY NOTICES — Hive SDK Rust
 
 Conservative all-target workspace dependency inventory, including build/dev dependencies; not a list of code linked in an individual binary. License expressions are preserved, not selected or reinterpreted.
 This mechanical inventory is not a legal compliance certification. Pending items are listed below.
-Cargo.lock SHA-256: 728902d47740a7f4adcd1354d7ff0f7831c6ec2be2c1c94390e2a952e8742a96
+Cargo.lock SHA-256: d7c7eb0eb39c6d26fe015d5d814cbe756aeb94fc6abd95054b837c6af3675046
 Status: incomplete
 
 PENDING REVIEW
@@ -61,6 +61,16 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 24e5860bf589d8501643e6ea51ffb3df66db2867492b09033d486183efbfa970: LICENSE-MIT
 
 async-channel@2.5.0 — Apache-2.0 OR MIT
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
+  SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
+
+async-executor@1.14.1 — Apache-2.0 OR MIT
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
+  SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
+
+async-fs@2.2.0 — Apache-2.0 OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
@@ -195,6 +205,10 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f: COPYING
   SHA-256 0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f: LICENSE-MIT
 
+byteorder-lite@0.1.0 — Unlicense OR MIT
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f: LICENSE-MIT
+
 bytes@1.12.1 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 45f522cacecb1023856e46df79ca625dfc550c94910078bd8aec6e02880b3d42: LICENSE
@@ -251,6 +265,10 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397: LICENSE-MIT
 
+color_quant@1.1.0 — MIT
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 592dc80f1a865d20d61a2006a2d29ce34a2bc28cd7e868ab300fdeed6da154ca: LICENSE
+
 combine@4.6.8 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 9bbc1b3dc4674a9ebb12c2a62f54fe3c08672539717f8d05828f684b6cc419a3: LICENSE
@@ -275,6 +293,17 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3: LICENSE-MIT
 
 core-foundation-sys@0.8.7 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
+  SHA-256 62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3: LICENSE-MIT
+
+core-graphics@0.25.0 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 ec82b96487e9e778ee610c7ab245162464782cfa1f555c2299333f8dbe5c036a: COPYRIGHT
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
+  SHA-256 62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3: LICENSE-MIT
+
+core-graphics-types@0.2.0 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3: LICENSE-MIT
@@ -428,10 +457,20 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
 
+fdeflate@0.3.7 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594: LICENSE-APACHE
+  SHA-256 c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3: LICENSE-MIT
+
 find-msvc-tools@0.1.15 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397: LICENSE-MIT
+
+flate2@1.1.11 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
+  SHA-256 025436edff4cfcdde17a5811fdea78892d8482efd1abdec5a17872d07a4f2112: LICENSE-MIT
 
 fluent-uri@0.4.1 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -449,6 +488,21 @@ Source: registry+https://github.com/rust-lang/crates.io-index
 foldhash@0.2.0 — Zlib
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 b1181a40b2a7b25cf66fd01481713bc1005df082c53ef73e851e55071b102744: LICENSE
+
+foreign-types@0.5.0 — MIT/Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08: LICENSE-APACHE
+  SHA-256 333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734: LICENSE-MIT
+
+foreign-types-macros@0.2.4 — MIT/Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08: LICENSE-APACHE
+  SHA-256 333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734: LICENSE-MIT
+
+foreign-types-shared@0.3.1 — MIT/Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08: LICENSE-APACHE
+  SHA-256 333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734: LICENSE-MIT
 
 form_urlencoded@1.2.2 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -529,6 +583,10 @@ generic-array@0.14.7 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 c09aae9d3c77b531f56351a9947bc7446511d6b025b3255312d3e3442a9a7583: LICENSE
 
+gethostname@1.1.0 — Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE
+
 getrandom@0.2.17 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf: LICENSE-APACHE
@@ -543,6 +601,11 @@ getrandom@0.4.3 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf: LICENSE-APACHE
   SHA-256 523a42c25d245dde9c015f882cec7f4555aad883382a6cf19b4b7d9b2cd5419b: LICENSE-MIT
+
+gif@0.14.2 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb: LICENSE-APACHE
+  SHA-256 77257f3d2181236b1aee78920238062ae64efe13c5d858b2db126e79c9e1b14f: LICENSE-MIT
 
 hashbrown@0.14.5 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -674,6 +737,16 @@ idna_adapter@1.2.2 — Apache-2.0 OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 8b43ce8accd61e9d370b5ca9e9c4f953279b5c239926c62315b40e24df51b726: LICENSE-MIT
+
+image@0.25.10 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594: LICENSE-APACHE
+  SHA-256 c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3: LICENSE-MIT
+
+image-webp@0.2.4 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594: LICENSE-APACHE
+  SHA-256 c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3: LICENSE-MIT
 
 indexmap@2.14.2 — Apache-2.0 OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -832,6 +905,10 @@ matchers@0.2.0 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a47129d738752a6ae52247fea645b42cb320d19e9327f1eb2d1a7f99d9455ad3: LICENSE
 
+md5@0.8.1 — Apache-2.0 OR MIT
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 2096783a9b939ae2a3a4789d9696740cec1a72ac04ccf8a7972d436fd0e7b240: LICENSE.md
+
 measure_time@0.8.3 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 405776d2ef79101bfa67711bda920ee1b4a762c64f61cc43b37b2c3d2b2ed9a2: LICENSE
@@ -861,6 +938,13 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
   SHA-256 dbe1fff0fb1314b6af94f161511406275cf01c5a32441fbf24528a57a051d599: LICENSE.md
 
+miniz_oxide@0.8.9 — MIT OR Zlib OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b: LICENSE
+  SHA-256 0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594: LICENSE-APACHE.md
+  SHA-256 799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d: LICENSE-MIT.md
+  SHA-256 0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39: LICENSE-ZLIB.md
+
 miniz_oxide@0.9.1 — MIT OR Zlib OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b: LICENSE
@@ -871,6 +955,11 @@ Source: registry+https://github.com/rust-lang/crates.io-index
 mio@1.2.4 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 07919255c7e04793d8ea760d6c2ce32d19f9ff02bdbdde3ce90b1e1880929a9b: LICENSE
+
+moxcms@0.8.1 — BSD-3-Clause OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5: LICENSE-APACHE.md
+  SHA-256 2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff: LICENSE.md
 
 murmurhash32@0.3.1 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -1048,6 +1137,11 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397: LICENSE-MIT
 
+png@0.18.1 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
+  SHA-256 eaf40297c75da471f7cda1f3458e8d91b4b2ec866e609527a13acfa93b638652: LICENSE-MIT
+
 polling@3.11.0 — Apache-2.0 OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
@@ -1082,6 +1176,11 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a: LICENSE-APACHE
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
 
+pxfm@0.1.30 — BSD-3-Clause OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5: LICENSE-APACHE.md
+  SHA-256 2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff: LICENSE.md
+
 pyo3@0.29.3 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 32c76dbe0e73d79100d5ece77c158399f2e2541bc5c78548a4ba45c1cb53c5c9: LICENSE-APACHE
@@ -1108,6 +1207,11 @@ pyo3-macros-backend@0.29.3 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 32c76dbe0e73d79100d5ece77c158399f2e2541bc5c78548a4ba45c1cb53c5c9: LICENSE-APACHE
   SHA-256 afcbe3b2e6b37172b5a9ca869ee4c0b8cdc09316e5d4384864154482c33e5af6: LICENSE-MIT
+
+quick-error@2.0.1 — MIT/Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08: LICENSE-APACHE
+  SHA-256 058f01fe181608d027fcde7e528fc03ea3cf90f30903c407644b0a9bbc54f500: LICENSE-MIT
 
 quinn@0.11.11 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -1277,7 +1381,7 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5: LICENSE-Apache-2.0_WITH_LLVM-exception
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
 
-rustls@0.23.45 — Apache-2.0 OR ISC OR MIT
+rustls@0.23.46 — Apache-2.0 OR ISC OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4: LICENSE-ISC
@@ -1414,6 +1518,10 @@ signal-hook-registry@1.4.8 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2: LICENSE-APACHE
   SHA-256 503558bfefe66ca15e4e3f7955b3cb0ec87fd52f29bf24b336af7bd00e946d5c: LICENSE-MIT
+
+simd-adler32@0.3.10 — MIT
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 42a35170233e83e18856792e748de4c1ce4a63b2afce9a370c89ef3fe23f9f2d: LICENSE.md
 
 simd_cesu8@1.2.0 — Apache-2.0 OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -1829,6 +1937,11 @@ webpki-root-certs@1.0.9 — CDLA-Permissive-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 e271993808fec50ab29350b39539cdec611a9103f827e0aa26d61da70e2d33f8: LICENSE
 
+weezl@0.1.12 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb: LICENSE-APACHE
+  SHA-256 573f5227db835cd30bbdd3aed3f82615f80119a4d5c82b4daf642dbfe2b6afde: LICENSE-MIT
+
 winapi@0.3.9 — MIT/Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1: LICENSE-APACHE
@@ -1999,6 +2112,16 @@ writeable@0.6.4 — Unicode-3.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2: LICENSE
 
+x11rb@0.13.2 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30: LICENSE-APACHE
+  SHA-256 a72561f47c1f665535930f606739d9098a6186802d5e2e8ec491faf00f4add5b: LICENSE-MIT
+
+x11rb-protocol@0.13.2 — MIT OR Apache-2.0
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30: LICENSE-APACHE
+  SHA-256 a72561f47c1f665535930f606739d9098a6186802d5e2e8ec491faf00f4add5b: LICENSE-MIT
+
 xdg-home@1.3.0 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
@@ -2065,6 +2188,10 @@ zerovec-derive@0.11.7 — Unicode-3.0
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2: LICENSE
 
+zlib-rs@0.6.8 — Zlib
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 e72111c52b7d96ebe25348dee19f0744f444d3c95ae6b1ecb6ccaecc5bce05ba: LICENSE
+
 zmij@1.0.23 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3: LICENSE-MIT
@@ -2083,6 +2210,18 @@ Source: registry+https://github.com/rust-lang/crates.io-index
   SHA-256 bf7017a73a95ea63bf3716b13ec2bcd79c92942356e3408c6fb66332bad6d977: LICENSE.BSD-3-Clause
   SHA-256 f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505: zstd/COPYING
   SHA-256 7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8: zstd/LICENSE
+
+zune-core@0.5.3 — MIT OR Apache-2.0 OR Zlib
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4: LICENSE-APACHE
+  SHA-256 d30047bca3b516639339a3c279bb84c3483124fb5a9dafe3c75056a85090e745: LICENSE-MIT
+  SHA-256 d201d14804d3bcd3b944147173175e4abfbd838b7c8069b6bd3452496bf13e6c: LICENSE-ZLIB
+
+zune-jpeg@0.5.15 — MIT OR Apache-2.0 OR Zlib
+Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4: LICENSE-APACHE
+  SHA-256 d30047bca3b516639339a3c279bb84c3483124fb5a9dafe3c75056a85090e745: LICENSE-MIT
+  SHA-256 d201d14804d3bcd3b944147173175e4abfbd838b7c8069b6bd3452496bf13e6c: LICENSE-ZLIB
 
 zvariant@4.2.0 — MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -2610,6 +2749,36 @@ limitations under the License.
 
 
 ========================================================================
+DOCUMENT SHA-256 025436edff4cfcdde17a5811fdea78892d8482efd1abdec5a17872d07a4f2112
+========================================================================
+Copyright (c) 2014-2026 Alex Crichton
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
 DOCUMENT SHA-256 0444c6991eead6822f7b9102e654448d51624431119546492e8b231db42c48bb
 ========================================================================
 Copyright (c) 2018 Tom Kaitchuck
@@ -2843,6 +3012,30 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+
+========================================================================
+DOCUMENT SHA-256 058f01fe181608d027fcde7e528fc03ea3cf90f30903c407644b0a9bbc54f500
+========================================================================
+Copyright (c) 2015 The quick-error Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================
@@ -4071,6 +4264,60 @@ The `cfg_aliases!` macro uses a lot of the code from [`tectonic_cfg_support::tar
 DOCUMENT SHA-256 1e881ecf2862d01e6e5bc2b861e46886d2a6fb01499c0c508a209a7271b13cf2
 ========================================================================
 ../LICENSE
+
+========================================================================
+DOCUMENT SHA-256 2096783a9b939ae2a3a4789d9696740cec1a72ac04ccf8a7972d436fd0e7b240
+========================================================================
+# License
+
+The project is dual licensed under the terms of the Apache License, Version 2.0,
+and the MIT License. You may obtain copies of the two licenses at
+
+* https://www.apache.org/licenses/LICENSE-2.0 and
+* https://opensource.org/licenses/MIT, respectively.
+
+The following two notices apply to every file of the project.
+
+## The Apache License
+
+```
+Copyright 2015–2026 The md5 Developers
+
+Licensed under the Apache License, Version 2.0 (the “License”); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an “AS IS” BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+```
+
+## The MIT License
+
+```
+Copyright 2015–2026 The md5 Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the “Software”), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 
 ========================================================================
 DOCUMENT SHA-256 209fbbe0ad52d9235e37badf9cadfe4dbdc87203179c0899e738b39ade42177b
@@ -5413,6 +5660,36 @@ DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
+DOCUMENT SHA-256 2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff
+========================================================================
+Copyright (c) Radzivon Bartoshyk. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+1.  Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+2.  Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+3.  Neither the name of the copyright holder nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+========================================================================
 DOCUMENT SHA-256 2d01890414494742ba4a509fcec8efa40f6d8be22cbd72be7cff08d6fda4ec89
 ========================================================================
 Copyright (c) 2014-2026 Sean McArthur
@@ -5801,6 +6078,30 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
    of your accepting any such warranty or additional liability.
 
 END OF TERMS AND CONDITIONS
+
+
+========================================================================
+DOCUMENT SHA-256 333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734
+========================================================================
+Copyright (c) 2017 The foreign-types Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================
@@ -7162,6 +7463,32 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+DOCUMENT SHA-256 42a35170233e83e18856792e748de4c1ce4a63b2afce9a370c89ef3fe23f9f2d
+========================================================================
+MIT License
+
+Copyright (c) [2021] [Marvin Countryman]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================
@@ -9006,6 +9333,33 @@ DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
+DOCUMENT SHA-256 573f5227db835cd30bbdd3aed3f82615f80119a4d5c82b4daf642dbfe2b6afde
+========================================================================
+The MIT License (MIT)
+
+Copyright (c) HeroicKatora 2020
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+
+========================================================================
 DOCUMENT SHA-256 58545fed1565e42d687aecec6897d35c6d37ccb71479a137c0deb2203e125c79
 ========================================================================
 The MIT License (MIT)
@@ -9235,6 +9589,32 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+========================================================================
+DOCUMENT SHA-256 592dc80f1a865d20d61a2006a2d29ce34a2bc28cd7e868ab300fdeed6da154ca
+========================================================================
+The MIT License (MIT)
+
+Copyright (c) 2016 PistonDevelopers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 
 ========================================================================
 DOCUMENT SHA-256 5b698ca13897be3afdb7174256fa1574f8c6892b8bea1a66dd6469d3fe27885a
@@ -11152,6 +11532,237 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+DOCUMENT SHA-256 769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb
+========================================================================
+                              Apache License
+                        Version 2.0, January 2004
+                     http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined by Sections 1 through 9 of this document.
+
+   "Licensor" shall mean the copyright owner or entity authorized by
+   the copyright owner that is granting the License.
+
+   "Legal Entity" shall mean the union of the acting entity and all
+   other entities that control, are controlled by, or are under common
+   control with that entity. For the purposes of this definition,
+   "control" means (i) the power, direct or indirect, to cause the
+   direction or management of such entity, whether by contract or
+   otherwise, or (ii) ownership of fifty percent (50%) or more of the
+   outstanding shares, or (iii) beneficial ownership of such entity.
+
+   "You" (or "Your") shall mean an individual or Legal Entity
+   exercising permissions granted by this License.
+
+   "Source" form shall mean the preferred form for making modifications,
+   including but not limited to software source code, documentation
+   source, and configuration files.
+
+   "Object" form shall mean any form resulting from mechanical
+   transformation or translation of a Source form, including but
+   not limited to compiled object code, generated documentation,
+   and conversions to other media types.
+
+   "Work" shall mean the work of authorship, whether in Source or
+   Object form, made available under the License, as indicated by a
+   copyright notice that is included in or attached to the work
+   (an example is provided in the Appendix below).
+
+   "Derivative Works" shall mean any work, whether in Source or Object
+   form, that is based on (or derived from) the Work and for which the
+   editorial revisions, annotations, elaborations, or other modifications
+   represent, as a whole, an original work of authorship. For the purposes
+   of this License, Derivative Works shall not include works that remain
+   separable from, or merely link (or bind by name) to the interfaces of,
+   the Work and Derivative Works thereof.
+
+   "Contribution" shall mean any work of authorship, including
+   the original version of the Work and any modifications or additions
+   to that Work or Derivative Works thereof, that is intentionally
+   submitted to Licensor for inclusion in the Work by the copyright owner
+   or by an individual or Legal Entity authorized to submit on behalf of
+   the copyright owner. For the purposes of this definition, "submitted"
+   means any form of electronic, verbal, or written communication sent
+   to the Licensor or its representatives, including but not limited to
+   communication on electronic mailing lists, source code control systems,
+   and issue tracking systems that are managed by, or on behalf of, the
+   Licensor for the purpose of discussing and improving the Work, but
+   excluding communication that is conspicuously marked or otherwise
+   designated in writing by the copyright owner as "Not a Contribution."
+
+   "Contributor" shall mean Licensor and any individual or Legal Entity
+   on behalf of whom a Contribution has been received by Licensor and
+   subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   copyright license to reproduce, prepare Derivative Works of,
+   publicly display, publicly perform, sublicense, and distribute the
+   Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of
+   this License, each Contributor hereby grants to You a perpetual,
+   worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+   (except as stated in this section) patent license to make, have made,
+   use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable
+   by such Contributor that are necessarily infringed by their
+   Contribution(s) alone or by combination of their Contribution(s)
+   with the Work to which such Contribution(s) was submitted. If You
+   institute patent litigation against any entity (including a
+   cross-claim or counterclaim in a lawsuit) alleging that the Work
+   or a Contribution incorporated within the Work constitutes direct
+   or contributory patent infringement, then any patent licenses
+   granted to You under this License for that Work shall terminate
+   as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the
+   Work or Derivative Works thereof in any medium, with or without
+   modifications, and in Source or Object form, provided that You
+   meet the following conditions:
+
+   (a) You must give any other recipients of the Work or
+       Derivative Works a copy of this License; and
+
+   (b) You must cause any modified files to carry prominent notices
+       stating that You changed the files; and
+
+   (c) You must retain, in the Source form of any Derivative Works
+       that You distribute, all copyright, patent, trademark, and
+       attribution notices from the Source form of the Work,
+       excluding those notices that do not pertain to any part of
+       the Derivative Works; and
+
+   (d) If the Work includes a "NOTICE" text file as part of its
+       distribution, then any Derivative Works that You distribute must
+       include a readable copy of the attribution notices contained
+       within such NOTICE file, excluding those notices that do not
+       pertain to any part of the Derivative Works, in at least one
+       of the following places: within a NOTICE text file distributed
+       as part of the Derivative Works; within the Source form or
+       documentation, if provided along with the Derivative Works; or,
+       within a display generated by the Derivative Works, if and
+       wherever such third-party notices normally appear. The contents
+       of the NOTICE file are for informational purposes only and
+       do not modify the License. You may add Your own attribution
+       notices within Derivative Works that You distribute, alongside
+       or as an addendum to the NOTICE text from the Work, provided
+       that such additional attribution notices cannot be construed
+       as modifying the License.
+
+   You may add Your own copyright statement to Your modifications and
+   may provide additional or different license terms and conditions
+   for use, reproduction, or distribution of Your modifications, or
+   for any such Derivative Works as a whole, provided Your use,
+   reproduction, and distribution of the Work otherwise complies with
+   the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade
+   names, trademarks, service marks, or product names of the Licensor,
+   except as required for reasonable and customary use in describing the
+   origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or
+   agreed to in writing, Licensor provides the Work (and each
+   Contributor provides its Contributions) on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+   implied, including, without limitation, any warranties or conditions
+   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+   PARTICULAR PURPOSE. You are solely responsible for determining the
+   appropriateness of using or redistributing the Work and assume any
+   risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory,
+   whether in tort (including negligence), contract, or otherwise,
+   unless required by applicable law (such as deliberate and grossly
+   negligent acts) or agreed to in writing, shall any Contributor be
+   liable to You for damages, including any direct, indirect, special,
+   incidental, or consequential damages of any character arising as a
+   result of this License or out of the use or inability to use the
+   Work (including but not limited to damages for loss of goodwill,
+   work stoppage, computer failure or malfunction, or any and all
+   other commercial damages or losses), even if such Contributor
+   has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing
+   the Work or Derivative Works thereof, You may choose to offer,
+   and charge a fee for, acceptance of support, warranty, indemnity,
+   or other liability obligations and/or rights consistent with this
+   License. However, in accepting such obligations, You may act only
+   on Your own behalf and on Your sole responsibility, not on behalf
+   of any other Contributor, and only if You agree to indemnify,
+   defend, and hold each Contributor harmless for any liability
+   incurred by, or claims asserted against, such Contributor by reason
+   of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+   To apply the Apache License to your work, attach the following
+   boilerplate notice, with the fields enclosed by brackets "[]"
+   replaced with your own identifying information. (Don't include
+   the brackets!)  The text should be enclosed in the appropriate
+   comment syntax for the file format. We also recommend that a
+   file or class name and description of purpose be included on the
+   same "printed page" as the copyright notice for easier
+   identification within third-party archives.
+
+Copyright [yyyy] [name of copyright owner]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+========================================================================
+DOCUMENT SHA-256 77257f3d2181236b1aee78920238062ae64efe13c5d858b2db126e79c9e1b14f
+========================================================================
+The MIT License (MIT)
+
+Copyright (c) 2015 nwin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================
@@ -13539,6 +14150,212 @@ Public License instead of this License.  But first, please read
 
 
 ========================================================================
+DOCUMENT SHA-256 90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5
+========================================================================
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright 2024 Radzivon Bartoshyk
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+
+========================================================================
 DOCUMENT SHA-256 90eb64f0279b0d9432accfa6023ff803bc4965212383697eee27a0f426d5f8d5
 ========================================================================
 Copyrights in the Rand project are retained by their contributors. No
@@ -15217,6 +16034,36 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+
+
+========================================================================
+DOCUMENT SHA-256 a72561f47c1f665535930f606739d9098a6186802d5e2e8ec491faf00f4add5b
+========================================================================
+Copyright 2019 x11rb Contributers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 
 ========================================================================
@@ -18218,6 +19065,36 @@ DOCUMENT SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab
 
 
 ========================================================================
+DOCUMENT SHA-256 c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3
+========================================================================
+MIT License
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
 DOCUMENT SHA-256 c816a0749cdc6bf062a5111c159723de51b2bfac66a1dac2655abd9e6b1583eb
 ========================================================================
 Copyright (c) 2018-2023 Sean McArthur
@@ -19330,6 +20207,30 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 ========================================================================
+DOCUMENT SHA-256 d201d14804d3bcd3b944147173175e4abfbd838b7c8069b6bd3452496bf13e6c
+========================================================================
+zlib License
+
+(C) zune-image developers
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+
+
+========================================================================
 DOCUMENT SHA-256 d288f9c9b4590446ec18c22ead8f8b5a12a3d4025b68f62dc9015063eb9cca69
 ========================================================================
 Copyright (c) 2015-2018 Vlad Filippov
@@ -19358,6 +20259,32 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+DOCUMENT SHA-256 d30047bca3b516639339a3c279bb84c3483124fb5a9dafe3c75056a85090e745
+========================================================================
+MIT License
+
+Copyright (c) zune-image developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================
@@ -20538,6 +21465,30 @@ Public License instead of this License.
 
 
 ========================================================================
+DOCUMENT SHA-256 e72111c52b7d96ebe25348dee19f0744f444d3c95ae6b1ecb6ccaecc5bce05ba
+========================================================================
+(C) 2024 Trifecta Tech Foundation 
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
+
+
+========================================================================
 DOCUMENT SHA-256 ea084a2373ebc1f0902c09266e7bf25a05ab3814c1805bb017ffa7308f90c061
 ========================================================================
 MIT License
@@ -20595,6 +21546,36 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ========================================================================
+DOCUMENT SHA-256 eaf40297c75da471f7cda1f3458e8d91b4b2ec866e609527a13acfa93b638652
+========================================================================
+Copyright (c) 2015 nwin
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
 DOCUMENT SHA-256 eafbfa606bc005ed7fd2f623d65af17ffe4ef7c017221ac14405bf4140771ea9
 ========================================================================
 Copyright (c) 2019 Eliza Weisman
@@ -20639,6 +21620,16 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
 OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+DOCUMENT SHA-256 ec82b96487e9e778ee610c7ab245162464782cfa1f555c2299333f8dbe5c036a
+========================================================================
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+option. All files in the project carrying such notice may not be
+copied, modified, or distributed except according to those terms.
 
 
 ========================================================================

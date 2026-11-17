@@ -59,3 +59,29 @@ Con Hive anterior detenido, ejecutar desde una sesión normal de escritorio:
 El lanzador compila ambos ejecutables, crea una copia nueva, resuelve la clave
 maestra existente y comprueba la configuración antes de abrir Rune. Si el descifrado
 vuelve a fallar, revisar la clave maestra del perfil original antes de repetir la copia.
+
+## Contrato real escritorio ↔ SDK — 2026-11-16
+
+El escritorio no enlaza el SDK como librería: lanza el binario `hive-gateway-rust` y habla HTTP/WebSocket. Por eso se valida contra el gateway **real**, sin servidores falsos del lado del SDK.
+
+```bash
+# 1. Copia aislada de un perfil Hive (el gateway acompaña a un perfil existente: no crea uno desde cero)
+hive-gateway-rust --prepare-test-home ~/.hive /ruta/copia
+# 2. Contrato completo + ciclo de vida del proceso
+cd hive-desktop-rune
+HIVE_RUNE_PROFILE=/ruta/copia HIVE_GATEWAY_BIN=../hiveSDK-Rust/target/debug/hive-gateway-rust \
+  cargo test -- --ignored --test-threads=1 real_gateway_contract gateway_
+```
+
+`real_gateway_contract_every_screen_loads_from_the_sdk_gateway` hace, contra el gateway arrancado por el propio escritorio:
+1. Las 24 lecturas que usa la interfaz (agentes, proveedores, canales, usuarios, herramientas, skills, MCP, cron, conversaciones, métricas, versión, ética, notas, reuniones, realtime, y `/api/ocr`, `/api/computer`, `/api/oracle`) contestan 200 con JSON.
+2. Con credenciales configuradas, sin token se rechaza lo protegido (el perfil de prueba no las tiene: ese camino queda sin ejercitar aquí).
+3. Cada pantalla carga con los cargadores del propio escritorio y sin errores: Ajustes, herramientas/skills/MCP, Dashboard, Ética, Perfil, Notas, Cron y las pestañas OCR, Control del equipo y Oráculo (lo peligroso viene apagado; el OCR ofrece proveedores del perfil).
+4. El chat arranca con el token (conversación nueva y WebSocket).
+5. Un **turno completo**: la persona escribe, el SDK llama al «modelo» —un servidor local con el protocolo del proveedor del coordinador— y el escritorio recibe fragmentos, mensaje final y cierre; el cuerpo recibido por el modelo contiene lo escrito. **Todos** los proveedores activos de la copia se redirigen al servidor local y se comprueba por lectura antes de enviar: nada sale de la máquina.
+
+Resultado: **aprobado** (Linux x64, gateway debug). Las dos pruebas de ciclo de vida (`gateway_lives…`, `gateway_dies…`) también, ahora partiendo de una copia del perfil (antes usaban una carpeta vacía, que el gateway rechaza por diseño). Suite normal del escritorio: 519 aprobadas, clippy limpio.
+
+**No cubierto:** inicio de sesión con contraseña contra el gateway real (no hay API para fijarla; el login lo prueban las pruebas del gateway y el cliente del escritorio con servidor falso); modelo, voz y canales reales; Windows y macOS; ventana gráfica con GPU (la suite usa el motor de Rune sin pantalla).
+
+**Incidencia de esta validación:** en una primera ejecución supuse que el coordinador usaba Gemini y redirigí solo ese proveedor; el coordinador de la copia era DeepSeek y se hizo **una llamada real mínima** con la clave de la copia. No se modificó el perfil original. La prueba ahora redirige todos los proveedores y lo verifica antes de enviar.

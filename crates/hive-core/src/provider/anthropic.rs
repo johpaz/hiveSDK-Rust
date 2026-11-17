@@ -16,14 +16,15 @@ pub struct AnthropicConfig {
     pub max_response_bytes: usize,
     #[serde(default = "default_version")]
     pub api_version: String,
-    #[serde(default = "default_output")]
-    pub default_max_output_tokens: u64,
+    /// Output limit for a request that names none. Without it, one is derived from
+    /// `context_window` (15%), else 4096.
+    #[serde(default)]
+    pub default_max_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window: Option<u64>,
 }
 fn default_version() -> String {
     "2026-10-21".into()
-}
-fn default_output() -> u64 {
-    4096
 }
 
 pub struct Anthropic {
@@ -31,8 +32,9 @@ pub struct Anthropic {
 }
 impl Anthropic {
     pub fn new(config: AnthropicConfig) -> Result<Self> {
-        if config.default_max_output_tokens == 0
-            || config.api_version.trim().is_empty()
+        let default_max_output_tokens =
+            super::resolve_output_cap(config.default_max_output_tokens, config.context_window)?;
+        if config.api_version.trim().is_empty()
             || reqwest::header::HeaderValue::from_str(&config.api_version).is_err()
         {
             return Err(Error::Input(
@@ -42,7 +44,7 @@ impl Anthropic {
         }
         let protocol = Protocol::Anthropic {
             version: config.api_version,
-            default_max_output_tokens: config.default_max_output_tokens,
+            default_max_output_tokens,
         };
         let common = OpenAiConfig {
             base_url: config.base_url,
@@ -50,6 +52,7 @@ impl Anthropic {
             timeout_ms: config.timeout_ms,
             max_response_bytes: config.max_response_bytes,
             output_token_parameter: Default::default(),
+            context_window: None,
         };
         Ok(Self {
             inner: Arc::new(HttpProvider::new(common, protocol)?),

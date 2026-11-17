@@ -6,6 +6,8 @@
 //! program allowlist (no shell), public-host-only web access unless opted out,
 //! and byte caps on everything returned to the model.
 mod command;
+#[cfg(feature = "computer-use")]
+mod computer;
 mod fs;
 mod obscura;
 mod obscura_install;
@@ -13,8 +15,10 @@ mod office;
 mod web;
 
 pub use command::CommandPolicy;
+#[cfg(feature = "computer-use")]
+pub use computer::{ComputerBackend, ComputerPolicy, ScriptedDesktop};
 pub use obscura::ObscuraPolicy;
-pub use office::OfficePolicy;
+pub use office::{OfficePolicy, PdfPageImage, PdfPageImages, pdf_page_images};
 pub use web::{SearchProvider, WebPolicy};
 
 use crate::{Error, Result, Tool, provider::CancellationToken};
@@ -57,6 +61,11 @@ pub struct ToolsConfig {
     /// Enables the `obscura_*` browser tools, backed by the Obscura headless browser.
     #[serde(default)]
     pub obscura: Option<ObscuraPolicy>,
+    /// Enables the `computer_*` tools (screenshots, pointer, keyboard). Off unless given, and
+    /// input is a separate grant inside it; see docs/computer-use.md.
+    #[cfg(feature = "computer-use")]
+    #[serde(default)]
+    pub computer: Option<ComputerPolicy>,
 }
 
 impl ToolsConfig {
@@ -70,6 +79,8 @@ impl ToolsConfig {
             web: None,
             office: None,
             obscura: None,
+            #[cfg(feature = "computer-use")]
+            computer: None,
         }
     }
 }
@@ -83,6 +94,10 @@ pub(crate) struct Inner {
     pub(crate) web: Option<WebPolicy>,
     pub(crate) office: Option<OfficePolicy>,
     pub(crate) obscura: Option<ObscuraPolicy>,
+    #[cfg(feature = "computer-use")]
+    pub(crate) computer: Option<ComputerPolicy>,
+    #[cfg(feature = "computer-use")]
+    pub(crate) computer_state: computer::State,
     /// The running Obscura session, started lazily and stopped by `close` or on drop.
     pub(crate) obscura_state: tokio::sync::Mutex<Option<obscura::Session>>,
 }
@@ -104,6 +119,12 @@ enum Dispatch {
         #[serde(default)]
         update: bool,
     },
+    /// Host controls of the `computer_*` tools. `stop` takes effect for every later action and
+    /// lets go of anything held down; `resume` and `reset` (the action budget) are the host's too.
+    ComputerStop,
+    ComputerResume,
+    ComputerReset,
+    ComputerStatus,
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -138,6 +159,10 @@ impl NativeTools {
         if let Some(obscura) = &config.obscura {
             obscura.validate()?;
         }
+        #[cfg(feature = "computer-use")]
+        if let Some(computer) = &config.computer {
+            computer.validate()?;
+        }
         Ok(Self {
             inner: Arc::new(Inner {
                 root,
@@ -148,6 +173,10 @@ impl NativeTools {
                 web: config.web,
                 office: config.office,
                 obscura: config.obscura,
+                #[cfg(feature = "computer-use")]
+                computer: config.computer,
+                #[cfg(feature = "computer-use")]
+                computer_state: Default::default(),
                 obscura_state: Default::default(),
             }),
         })
@@ -233,13 +262,18 @@ impl NativeTools {
         if let Some(obscura) = &self.inner.obscura {
             tools.extend(obscura::specs(obscura));
         }
+        #[cfg(feature = "computer-use")]
+        if let Some(computer) = &self.inner.computer {
+            tools.extend(computer::specs(computer));
+        }
         tools
             .into_iter()
             .map(|(name, description, properties, required)| Tool {
                 name: name.into(),
                 description: description.into(),
                 parameters: json!({"type":"object","properties":properties,"required":required,"additionalProperties":false}),
-                allow_repeated_results: false,
+                // A click always answers {"ok":true}, and an unchanged screen looks the same twice.
+                allow_repeated_results: name.starts_with("computer_"),
             })
             .collect()
     }
@@ -264,6 +298,10 @@ impl NativeTools {
         let inner = self.inner.clone();
         match name {
             "command_run" => command::run(&inner, &arguments, cancel).await,
+            #[cfg(feature = "computer-use")]
+            name if name.starts_with("computer_") => {
+                computer::run(&inner, name, &arguments, cancel).await
+            }
             name if name.starts_with("obscura_") => {
                 obscura::run(&inner, name, &arguments, cancel).await
             }
@@ -309,6 +347,37 @@ impl NativeTools {
 
     pub async fn close(&self) {
         obscura::shutdown(&self.inner).await;
+        #[cfg(feature = "computer-use")]
+        self.inner.computer_state.shutdown().await;
+    }
+
+    /// Replace the desktop with a scripted one (for the tests of a host that embeds these tools).
+    #[doc(hidden)]
+    #[cfg(feature = "computer-use")]
+    pub fn attach_scripted_desktop(&self, width: u32, height: u32) -> ScriptedDesktop {
+        computer::attach_scripted(&self.inner.computer_state, (width, height))
+    }
+
+    /// Refuse every later `computer_*` action until [`computer_resume`](Self::computer_resume).
+    /// Safe from any thread at any time; an action already running is interrupted at its next
+    /// step by the caller's cancellation, and its held keys are released when it ends.
+    #[cfg(feature = "computer-use")]
+    pub fn computer_stop(&self) {
+        self.inner.computer_state.stop();
+    }
+    #[cfg(feature = "computer-use")]
+    pub fn computer_resume(&self) {
+        self.inner.computer_state.resume();
+    }
+    /// Give the `computer_*` tools a fresh action budget.
+    #[cfg(feature = "computer-use")]
+    pub fn computer_reset(&self) {
+        self.inner.computer_state.reset();
+    }
+    /// `{stopped, actions}`.
+    #[cfg(feature = "computer-use")]
+    pub fn computer_status(&self) -> Value {
+        self.inner.computer_state.status()
     }
 
     /// Best-effort synchronous stop of the session, for process-exit hooks. If a
@@ -326,6 +395,30 @@ impl NativeTools {
             Dispatch::ToolDefinitions => serde_json::to_value(self.tool_definitions())?,
             Dispatch::ExecuteTool { name, arguments } => {
                 self.execute_tool(&name, arguments, cancel).await?
+            }
+            #[cfg(feature = "computer-use")]
+            Dispatch::ComputerStop => {
+                self.computer_stop();
+                self.computer_status()
+            }
+            #[cfg(feature = "computer-use")]
+            Dispatch::ComputerResume => {
+                self.computer_resume();
+                self.computer_status()
+            }
+            #[cfg(feature = "computer-use")]
+            Dispatch::ComputerReset => {
+                self.computer_reset();
+                self.computer_status()
+            }
+            #[cfg(feature = "computer-use")]
+            Dispatch::ComputerStatus => self.computer_status(),
+            #[cfg(not(feature = "computer-use"))]
+            Dispatch::ComputerStop
+            | Dispatch::ComputerResume
+            | Dispatch::ComputerReset
+            | Dispatch::ComputerStatus => {
+                return Err(invalid("computer use is not built into this SDK"));
             }
             Dispatch::InstallObscura { update } => {
                 tokio::select! {

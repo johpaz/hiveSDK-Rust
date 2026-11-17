@@ -12,7 +12,12 @@ harness = []
 scheduler = ["harness", "dep:chrono", "dep:chrono-tz"]
 services = ["dep:serde_yaml", "dep:zeroize"]
 browser = ["dep:tokio-tungstenite", "dep:futures-util"]
-tools = ["dep:miniz_oxide"]
+tools = ["dep:miniz_oxide", "dep:aes", "dep:cbc", "dep:md5"]
+# Decode/transform/encode PNG, JPEG, GIF (first frame) and WebP (lossless output).
+images = ["dep:image_codec"]
+# Screenshots and input for the desktop: X11 (x11rb) and, for Wayland, the xdg desktop portals
+# (zbus). Off by default; Linux only for now (other platforms report that they are unsupported).
+computer-use = ["tools", "images", "dep:x11rb", "dep:zbus", "dep:futures-util", "dep:windows-sys", "dep:core-graphics"]
 
 [dependencies]
 serde.workspace = true
@@ -34,8 +39,25 @@ chrono = { version = "0.4", default-features = false, features = ["std"], option
 chrono-tz = { version = "0.9", optional = true }
 
 zeroize = { version = "1", optional = true }
+image_codec = { package = "image", version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"], optional = true }
+# PDF standard security handler (reading encrypted PDFs).
+aes = { version = "0.8", optional = true }
+cbc = { version = "0.1", optional = true, features = ["alloc"] }
+md5 = { version = "0.8", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+image_codec = { package = "image", version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 tokio = { version = "1", features = ["net", "io-util"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", optional = true, default-features = false, features = ["xtest"] }
+zbus = { version = "4.4", optional = true }
+
+# Theoretical backends: written against the documented APIs and type-checked for their targets, never run.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", optional = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = { version = "0.25", optional = true, features = ["highsierra"] }

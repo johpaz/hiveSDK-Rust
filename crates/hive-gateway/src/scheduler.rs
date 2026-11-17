@@ -5,7 +5,7 @@
 //! unknown (the process died mid-run) is `uncertain` and is never replayed, neither
 //! by the schedule nor by a manual trigger.
 use crate::{
-    Result,
+    Result, channels,
     config::{self, App},
     management, server,
 };
@@ -14,7 +14,6 @@ use hive_agent_core::{
     harness::{DurableQueue, Job, JobFilter, JobOutcome, JobStatus, QueuePolicy, WorkerPool},
     provider::CancellationToken,
     scheduler::Schedule,
-    sessions::SessionStore,
 };
 use hivedb_core::{ColOp, PutOptions};
 use serde_json::{Value, json};
@@ -46,16 +45,17 @@ fn timestamp(value: &Value) -> Option<u64> {
             .map(|d| d.timestamp_millis().max(0) as u64)
     })
 }
-fn store(app: &App) -> Result<SessionStore> {
-    app.store
-        .lock()
-        .map_err(|_| "Store bloqueado")?
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| "Store cerrado".into())
+/// The user a task runs as: its `user_id`, or the owner for shared rows with none.
+fn task_owner(app: &App, row: &Value) -> Result<String> {
+    match row["user_id"].as_str().filter(|id| !id.is_empty()) {
+        Some(id) => Ok(id.to_owned()),
+        None => app.owner_id(),
+    }
 }
-fn queue_for(app: &App) -> Result<DurableQueue> {
-    let queue = store(app)?.queue(QUEUE)?;
+/// Each user's tasks live in that user's own store and queue, so one user's schedules,
+/// jobs and events are never visible to, or counted against, another's.
+fn queue_for(app: &App, user: &str) -> Result<DurableQueue> {
+    let queue = app.store_handle(user)?.queue(QUEUE)?;
     queue.open(policy())?;
     Ok(queue)
 }
@@ -140,6 +140,15 @@ fn spec_of(row: &Value) -> Result<Value> {
         "misfire_policy":"skip","misfire_grace_ms":60_000,
         "start_at":timestamp(&row["start_at"]),"stop_at":timestamp(&row["stop_at"]),"max_runs":remaining}))
 }
+/// Where a task's result is also sent: `all` (every active channel of its owner) or one
+/// channel type. `auto` and `webchat` keep it in the task's conversation only.
+fn delivery_target(row: &Value) -> Option<String> {
+    row["channel"]
+        .as_str()
+        .filter(|channel| *channel == "all" || channels::DELIVERABLE.contains(channel))
+        .map(str::to_owned)
+}
+
 fn busy_runs(app: &App, task: &str) -> Result<bool> {
     Ok(config::docs(&app.db, "taskRuns")?.iter().any(|run| {
         run["task_id"] == task && run["status"].as_str().is_some_and(|s| BUSY.contains(&s))
@@ -151,8 +160,9 @@ pub(crate) fn route(
     path: &str,
     raw: &str,
     body: &[u8],
+    user: &str,
 ) -> Result<Option<(u16, Value)>> {
-    let user = management::owner(app)?;
+    let user = user.to_owned();
     let query = server::query(raw)?;
     let parts = path
         .trim_start_matches("/api/cron")
@@ -163,12 +173,12 @@ pub(crate) fn route(
     let action = parts.get(1).copied().unwrap_or_default();
     let _guard = app
         .activity_lock
-        .lock()
+        .write()
         .map_err(|_| "Scheduler bloqueado")?;
     if method == "GET" && id.is_empty() {
         return Ok(Some((
             200,
-            json!({"tasks":config::docs(&app.db,"cronJobs")?.into_iter().filter(|r|management::owned(r,&user)).collect::<Vec<_>>()}),
+            json!({"tasks":config::docs(&app.db,"cronJobs")?.into_iter().filter(|r|task_owner(app,r).is_ok_and(|owner|owner==user)).collect::<Vec<_>>()}),
         )));
     }
     if method == "GET" && id == "status" {
@@ -177,12 +187,31 @@ pub(crate) fn route(
             json!({"running":true,"backend":"rust","automatic":true,"engine":"shared-scheduler"}),
         )));
     }
+    if method == "POST" && id.is_empty() {
+        return Ok(Some(create_task(app, &user, body)?));
+    }
     let Some(row) = app.db.col_get("cronJobs", &id)? else {
         return Ok(Some((404, json!({"error":"Tarea desconocida"}))));
     };
-    if !management::owned(&row.doc, &user) {
+    if task_owner(app, &row.doc)? != user {
         return Ok(Some((404, json!({"error":"Tarea desconocida"}))));
     };
+    if method == "PATCH" && action.is_empty() {
+        return Ok(Some(edit_task(app, &user, &row.doc, row.version, body)?));
+    }
+    if method == "GET" && action == "schedule" {
+        // What the shared scheduler holds for this task: its immutable schedule, whether it is
+        // enabled, the next due time, how many runs it published and the job it waits on.
+        let queue = queue_for(app, &user)?;
+        let report = match row.doc["schedule_id"].as_str() {
+            Some(sid) => queue.get_schedule(sid)?,
+            None => None,
+        };
+        return Ok(Some((
+            200,
+            json!({"scheduleId":row.doc["schedule_id"],"schedule":report}),
+        )));
+    }
     if method == "GET" && action == "history" {
         let mut rows = config::docs(&app.db, "taskRuns")?
             .into_iter()
@@ -209,13 +238,13 @@ pub(crate) fn route(
             id,
         }])?;
         // The mirrored schedule is retired on the next sync.
-        if let Ok(queue) = queue_for(app) {
-            let _ = sync_locked(app, &queue);
+        if let Ok(queue) = queue_for(app, &user) {
+            let _ = sync_locked(app, &queue, &user);
         }
         return Ok(Some((200, json!({"ok":true}))));
     }
     if method == "POST" && action == "trigger" {
-        return Ok(Some(match trigger(app, &row.doc, "manual") {
+        return Ok(Some(match trigger(app, &row.doc, &user, "manual") {
             Ok(()) => (202, json!({"ok":true,"status":"queued"})),
             Err(error) => (409, json!({"ok":false,"error":error.to_string()})),
         }));
@@ -242,20 +271,182 @@ pub(crate) fn route(
             },
         )?;
         // Apply it now, not on the next tick: a paused task must not fire in between.
-        if let Ok(queue) = queue_for(app) {
-            let _ = sync_locked(app, &queue);
+        if let Ok(queue) = queue_for(app, &user) {
+            let _ = sync_locked(app, &queue, &user);
         }
         return Ok(Some((200, json!({"ok":true}))));
     }
-    let _ = body;
     Ok(Some((405, json!({"error":"Método de tarea no permitido"}))))
+}
+
+const FIELDS: [&str; 12] = [
+    "name",
+    "task",
+    "task_type",
+    "interval_sec",
+    "cron_expression",
+    "timezone",
+    "dom_and_dow",
+    "fire_at",
+    "start_at",
+    "stop_at",
+    "max_runs",
+    "channel",
+];
+
+/// Check the editable fields of a task definition before it is stored. A definition that
+/// would only fail later (an impossible cron, an interval of zero, a tool with no adapter)
+/// is refused now, with the reason, instead of creating a task that silently never runs.
+fn validate_definition(doc: &Value) -> std::result::Result<(), String> {
+    let text = |key: &str, max: usize| {
+        doc[key]
+            .as_str()
+            .is_none_or(|v| v.len() <= max && !v.chars().any(char::is_control))
+    };
+    if doc["name"]
+        .as_str()
+        .is_none_or(|name| name.trim().is_empty())
+        || !text("name", 200)
+    {
+        return Err("name es obligatorio (hasta 200 caracteres)".into());
+    }
+    if doc["task"]
+        .as_str()
+        .is_none_or(|task| task.trim().is_empty() || task.len() > 100_000)
+    {
+        return Err("task es obligatorio (hasta 100000 caracteres)".into());
+    }
+    if doc["tool_name"]
+        .as_str()
+        .is_some_and(|tool| !tool.is_empty())
+    {
+        return Err("Las tareas con herramienta externa no están soportadas".into());
+    }
+    if doc["channel"].as_str().is_some_and(|channel| {
+        !matches!(channel, "auto" | "webchat" | "")
+            && channel != "all"
+            && !channels::DELIVERABLE.contains(&channel)
+    }) {
+        return Err("channel admite auto, webchat, all (todos los canales activos), telegram, discord, slack o whatsapp".into());
+    }
+    if !text("cron_expression", 200) || !text("timezone", 100) {
+        return Err("cron_expression o timezone no válidos".into());
+    }
+    if doc["max_runs"]
+        .as_u64()
+        .is_some_and(|runs| runs == 0 || runs > 10_000)
+        || (!doc["max_runs"].is_null() && doc["max_runs"].as_u64().is_none())
+    {
+        return Err("max_runs debe estar entre 1 y 10000".into());
+    }
+    for key in ["start_at", "stop_at"] {
+        if !doc[key].is_null() && timestamp(&doc[key]).is_none() {
+            return Err(format!("{key} debe ser una fecha RFC 3339 o milisegundos"));
+        }
+    }
+    let kind = doc["task_type"].as_str().unwrap_or_default();
+    if !matches!(kind, "interval" | "one_shot" | "recurring") {
+        return Err("task_type debe ser interval, one_shot o recurring".into());
+    }
+    next(doc, server::now())
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn create_task(app: &App, user: &str, body: &[u8]) -> Result<(u16, Value)> {
+    let body: Value = serde_json::from_slice(body)?;
+    let Some(fields) = body.as_object() else {
+        return Ok((400, json!({"error":"Se esperaba un objeto"})));
+    };
+    if let Some(unknown) = fields.keys().find(|key| !FIELDS.contains(&key.as_str())) {
+        return Ok((
+            400,
+            json!({"error":format!("Campo no permitido: {unknown}")}),
+        ));
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let mut doc = json!({"id":id,"user_id":user,"status":"active","run_count":0,"error_count":0,"created_at":stamp(server::now())});
+    doc.as_object_mut().expect("object").extend(fields.clone());
+    if let Err(reason) = validate_definition(&doc) {
+        return Ok((400, json!({"error":reason})));
+    }
+    // The first occurrence, as the desktop shows it; the shared scheduler owns it from here.
+    if let Ok(Some(at)) = next(&doc, server::now()) {
+        doc["next_run_at"] = json!(stamp(at));
+    }
+    app.db.col_put(
+        "cronJobs",
+        &id,
+        &doc,
+        PutOptions {
+            expected_version: Some(0),
+        },
+    )?;
+    if let Ok(queue) = queue_for(app, user) {
+        let _ = sync_locked(app, &queue, user);
+    }
+    Ok((
+        201,
+        json!({"task":app.db.col_get("cronJobs", &id)?.map(|row| row.doc)}),
+    ))
+}
+
+/// Edit the definition. Status, ownership and the run counters are not editable (pause and
+/// resume change the status). The mirrored schedule is immutable, so an edit that changes
+/// when the task fires creates a new one and retires the old; runs already made stay in the history.
+fn edit_task(
+    app: &App,
+    user: &str,
+    current: &Value,
+    version: u64,
+    body: &[u8],
+) -> Result<(u16, Value)> {
+    let body: Value = serde_json::from_slice(body)?;
+    let Some(fields) = body.as_object().filter(|fields| !fields.is_empty()) else {
+        return Ok((
+            400,
+            json!({"error":"Se esperaba un objeto con campos a cambiar"}),
+        ));
+    };
+    if let Some(unknown) = fields.keys().find(|key| !FIELDS.contains(&key.as_str())) {
+        return Ok((
+            400,
+            json!({"error":format!("Campo no editable: {unknown}")}),
+        ));
+    }
+    let mut doc = current.clone();
+    doc.as_object_mut().expect("object").extend(fields.clone());
+    // Switching type leaves the other type's fields behind; they are ignored, not erased.
+    if let Err(reason) = validate_definition(&doc) {
+        return Ok((400, json!({"error":reason})));
+    }
+    let id = config::string(current, "id")?.to_owned();
+    if let Ok(Some(at)) = next(&doc, server::now()) {
+        doc["next_run_at"] = json!(stamp(at));
+    }
+    doc["last_error"] = Value::Null;
+    app.db.col_put(
+        "cronJobs",
+        &id,
+        &doc,
+        PutOptions {
+            expected_version: Some(version),
+        },
+    )?;
+    if let Ok(queue) = queue_for(app, user) {
+        let _ = sync_locked(app, &queue, user);
+    }
+    Ok((
+        200,
+        json!({"task":app.db.col_get("cronJobs", &id)?.map(|row| row.doc)}),
+    ))
 }
 
 /// Queue one run by hand. Refused while a run of the task is queued, running or
 /// uncertain, so a manual trigger can never replay interrupted work.
-fn trigger(app: &App, task: &Value, reason: &str) -> Result<()> {
+fn trigger(app: &App, task: &Value, user: &str, reason: &str) -> Result<()> {
     let id = config::string(task, "id")?;
-    let queue = queue_for(app)?;
+    let queue = queue_for(app, user)?;
     let lane = format!("cron.{id}");
     let live = queue.list_where(
         &JobFilter {
@@ -297,8 +488,7 @@ fn patch_task(app: &App, id: &str, body: &Value) {
 /// definition, enable it only while the task is active and has no uncertain run, and
 /// retire schedules whose task was edited, paused or deleted. Callers hold the
 /// activity lock.
-fn sync_locked(app: &App, queue: &DurableQueue) -> Result<()> {
-    let user = management::owner(app)?;
+fn sync_locked(app: &App, queue: &DurableQueue, user: &str) -> Result<()> {
     let mut live = std::collections::BTreeSet::new();
     for row in config::docs(&app.db, "cronJobs")? {
         let Some(id) = row["id"].as_str().map(str::to_owned) else {
@@ -309,7 +499,7 @@ fn sync_locked(app: &App, queue: &DurableQueue) -> Result<()> {
             .and_then(|text| serde_json::from_str::<Value>(text).ok())
             .unwrap_or_else(|| row["payload"].clone());
         if payload["_internal"] == true
-            || !management::owned(&row, &user)
+            || task_owner(app, &row)? != user
             || row["name"].as_str().is_some_and(|s| s.starts_with("_hive"))
         {
             continue;
@@ -453,6 +643,14 @@ impl Projection {
         if job.status.terminal_for_run() {
             doc["finished_at"] = json!(stamp(job.finished_at.unwrap_or_else(server::now)));
         }
+        if let Some(delivery) = job
+            .result
+            .as_ref()
+            .map(|r| &r["delivery"])
+            .filter(|d| d.is_object())
+        {
+            doc["delivery"] = delivery.clone();
+        }
         if let Some(text) = job.result.as_ref().and_then(|r| r["text"].as_str()) {
             doc["result"] = json!(text);
         }
@@ -554,19 +752,22 @@ fn start_workers(
     app: &Arc<App>,
     queue: &DurableQueue,
     cancel: &CancellationToken,
+    user: &str,
 ) -> Result<Vec<tokio::task::JoinHandle<()>>> {
-    let mut pool = WorkerPool::new(queue.clone(), "gateway-cron".into())?;
+    let mut pool = WorkerPool::new(queue.clone(), format!("gateway-cron:{user}"))?;
     let host = app.clone();
+    let owner = user.to_owned();
     pool.register(KIND, move |job: Job, _token: CancellationToken| {
         let host = host.clone();
+        let owner = owner.clone();
         async move {
             let task = job.input.payload["task_id"]
                 .as_str()
                 .unwrap_or_default()
                 .to_owned();
-            Ok(match execute(host, &task).await {
-                Ok(text) => JobOutcome::Completed {
-                    result: json!({"text":bounded(&text)}),
+            Ok(match execute(host, &owner, &task).await {
+                Ok((text, delivery)) => JobOutcome::Completed {
+                    result: json!({"text":bounded(&text),"delivery":delivery}),
                 },
                 Err(error) if error.is::<UncertainTask>() => JobOutcome::Uncertain {
                     error: bounded(&error.to_string()),
@@ -604,16 +805,15 @@ fn start_workers(
 
 /// One maintenance cycle: sync definitions, project finished runs, purge old jobs and
 /// consumed events. Taken under the activity lock like every other `cronJobs` writer.
-fn cycle(app: &App, queue: &DurableQueue, projection: &mut Projection) -> Result<()> {
+fn cycle(app: &App, queue: &DurableQueue, projection: &mut Projection, user: &str) -> Result<()> {
     let _guard = app
         .activity_lock
-        .lock()
+        .write()
         .map_err(|_| "Scheduler bloqueado")?;
-    let user = management::owner(app)?;
     // Project first: a run that just became uncertain must disable its schedule in this
     // same cycle, not one second later.
-    projection.apply(app, queue, &user)?;
-    sync_locked(app, queue)?;
+    projection.apply(app, queue, user)?;
+    sync_locked(app, queue, user)?;
     queue.purge_jobs(
         &JobFilter {
             kind: Some(KIND.into()),
@@ -628,44 +828,64 @@ fn cycle(app: &App, queue: &DurableQueue, projection: &mut Projection) -> Result
     Ok(())
 }
 
+/// One user's scheduler: their queue, its event cursor and their workers.
+struct UserCron {
+    queue: DurableQueue,
+    projection: Option<Projection>,
+    workers: Vec<tokio::task::JoinHandle<()>>,
+}
+
 pub(crate) async fn run(app: Arc<App>) {
     adopt_legacy_runs(&app);
     let cancel = CancellationToken::new();
-    let mut workers: Vec<tokio::task::JoinHandle<()>> = vec![];
-    let mut projection = Some(Projection { after: 0 });
-    let mut queue: Option<DurableQueue> = None;
+    let mut users: std::collections::HashMap<String, UserCron> = Default::default();
     let mut clock = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {_=app.shutdown.cancelled()=>break,_=clock.tick()=>{}}
-        if queue.is_none() {
-            // The store appears once a user exists.
-            if let Ok(opened) = queue_for(&app) {
-                match start_workers(&app, &opened, &cancel) {
-                    Ok(handles) => {
-                        workers = handles;
-                        queue = Some(opened);
-                    }
-                    Err(_) => continue,
-                }
-            } else {
-                continue;
+        // Every user has their own queue and workers; users added later are picked up here.
+        let ids: Vec<String> = config::docs(&app.db, "users")
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect();
+        for id in ids {
+            if !users.contains_key(&id) {
+                let Ok(queue) = queue_for(&app, &id) else {
+                    continue;
+                };
+                let Ok(workers) = start_workers(&app, &queue, &cancel, &id) else {
+                    continue;
+                };
+                users.insert(
+                    id.clone(),
+                    UserCron {
+                        queue,
+                        projection: Some(Projection { after: 0 }),
+                        workers,
+                    },
+                );
             }
-        }
-        let (host, q) = (app.clone(), queue.clone().expect("opened above"));
-        let mut state = projection.take().expect("restored below");
-        let result = tokio::task::spawn_blocking(move || {
-            let outcome = cycle(&host, &q, &mut state);
-            (state, outcome)
-        })
-        .await;
-        match result {
-            Ok((state, _)) => projection = Some(state),
-            Err(_) => projection = Some(Projection { after: 0 }),
+            let Some(entry) = users.get_mut(&id) else {
+                continue;
+            };
+            let (host, q, user) = (app.clone(), entry.queue.clone(), id.clone());
+            let mut state = entry.projection.take().unwrap_or(Projection { after: 0 });
+            let result = tokio::task::spawn_blocking(move || {
+                let outcome = cycle(&host, &q, &mut state, &user);
+                (state, outcome)
+            })
+            .await;
+            entry.projection = Some(match result {
+                Ok((state, _)) => state,
+                Err(_) => Projection { after: 0 },
+            });
         }
     }
     cancel.cancel();
-    for handle in workers {
-        let _ = handle.await;
+    for (_, entry) in users {
+        for handle in entry.workers {
+            let _ = handle.await;
+        }
     }
 }
 #[derive(Debug)]
@@ -676,7 +896,7 @@ impl std::fmt::Display for UncertainTask {
     }
 }
 impl std::error::Error for UncertainTask {}
-async fn execute(app: Arc<App>, id: &str) -> Result<String> {
+async fn execute(app: Arc<App>, user: &str, id: &str) -> Result<(String, Option<Value>)> {
     let row = app
         .db
         .col_get("cronJobs", id)?
@@ -685,17 +905,13 @@ async fn execute(app: Arc<App>, id: &str) -> Result<String> {
     if row["tool_name"].as_str().is_some_and(|s| !s.is_empty()) {
         return Err("Esta tarea necesita una herramienta externa aún no integrada".into());
     }
-    let user = management::owner(&app)?;
-    if row["channel"]
-        .as_str()
-        .is_some_and(|channel| !matches!(channel, "auto" | "webchat" | ""))
-    {
-        return Err(
-            "El canal de entrega de esta tarea no tiene un adaptador conectado en Rust".into(),
-        );
+    let user = user.to_owned();
+    if task_owner(&app, &row)? != user {
+        return Err("La tarea pertenece a otro usuario".into());
     }
+    let target = delivery_target(&row);
     if row["agent_id"].as_str().is_some_and(|id| !id.is_empty()) {
-        let selected = app.selection()?;
+        let selected = app.selection_for_user(&user)?;
         if row["agent_id"] != selected.agent["id"] {
             return Err(
                 "Esta tarea apunta a un especialista; el scheduler nativo ejecuta el coordinador"
@@ -710,15 +926,33 @@ async fn execute(app: Arc<App>, id: &str) -> Result<String> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);
     server::start_live_work(
         app.clone(),
-        user,
+        user.clone(),
         thread,
         config::string(&row, "task")?.into(),
         tx,
+        false,
     )?;
     let result = tokio::select! {_=app.shutdown.cancelled()=>return Err(UncertainTask("Gateway detenido durante la tarea".into()).into()),result=rx.recv()=>result.ok_or_else(||UncertainTask("La tarea cerró sin resultado".into()))?};
+    let name = row["name"].as_str().unwrap_or("tarea").to_owned();
     if result["ok"] == true {
-        Ok(result["content"].as_str().unwrap_or_default().into())
+        let text: String = result["content"].as_str().unwrap_or_default().into();
+        // The result also goes to the channels the task asked for, so it is not left in a
+        // conversation nobody is reading.
+        let report = match &target {
+            Some(target) => {
+                Some(channels::deliver(&app, &user, target, &format!("⏰ {name}\n\n{text}")).await)
+            }
+            None => None,
+        };
+        Ok((text, report))
     } else {
+        // A failed or uncertain run is reported too (in plain words, without internals).
+        if let Some(target) = &target {
+            let alert = format!(
+                "⚠️ La tarea programada «{name}» no se pudo completar. Revisa su historial antes de repetirla."
+            );
+            let _ = channels::deliver(&app, &user, target, &alert).await;
+        }
         Err(UncertainTask(
             result["error"]
                 .as_str()
@@ -727,6 +961,21 @@ async fn execute(app: Arc<App>, id: &str) -> Result<String> {
         )
         .into())
     }
+}
+
+/// Hooks for the multi-user tests in `server::tests`.
+#[cfg(test)]
+pub(crate) fn stamp_for_tests(ms: u64) -> String {
+    stamp(ms)
+}
+#[cfg(test)]
+pub(crate) fn queue_for_tests(app: &App, user: &str) -> DurableQueue {
+    queue_for(app, user).unwrap()
+}
+#[cfg(test)]
+pub(crate) fn sync_for_tests(app: &App, queue: &DurableQueue, user: &str) {
+    let _guard = app.activity_lock.write().unwrap();
+    sync_locked(app, queue, user).unwrap();
 }
 
 #[cfg(test)]
@@ -761,7 +1010,7 @@ mod tests {
     }
     /// Deterministic cycle: sync, tick every schedule at `now`, then project.
     fn settle(app: &App, queue: &DurableQueue, projection: &mut Projection, now: u64) {
-        cycle(app, queue, projection).unwrap();
+        cycle(app, queue, projection, "u1").unwrap();
         let mut cursor = None::<String>;
         loop {
             let page = queue.list_schedules(100, cursor.as_deref()).unwrap();
@@ -775,7 +1024,7 @@ mod tests {
                 None => break,
             }
         }
-        cycle(app, queue, projection).unwrap();
+        cycle(app, queue, projection, "u1").unwrap();
     }
     fn finish(queue: &DurableQueue, outcome: JobOutcome) -> Job {
         let job = queue
@@ -831,7 +1080,7 @@ mod tests {
             "cancelled",
             "a queued run that never started must not fire by surprise"
         );
-        let queue = queue_for(&app).unwrap();
+        let queue = queue_for(&app, "u1").unwrap();
         eventually("the task's schedule exists but is disabled", || {
             let page = queue.list_schedules(10, None).unwrap();
             page["items"]
@@ -848,7 +1097,7 @@ mod tests {
             "nothing was published while the run is uncertain"
         );
         assert_eq!(runs(&app).len(), 2);
-        assert!(trigger(&app, &row(&app, "task"), "manual").is_err());
+        assert!(trigger(&app, &row(&app, "task"), "u1", "manual").is_err());
         app.shutdown.cancel();
         runtime.await.unwrap();
     }
@@ -890,7 +1139,7 @@ mod tests {
             "foreign",
             json!({"user_id":"u2","next_run_at":stamp(now - 1000)}),
         );
-        let queue = queue_for(&app).unwrap();
+        let queue = queue_for(&app, "u1").unwrap();
         let mut projection = Projection { after: 0 };
         settle(&app, &queue, &mut projection, now);
         settle(&app, &queue, &mut projection, now);
@@ -964,7 +1213,7 @@ mod tests {
         let (_folder, app) = open();
         let now = 1_800_000_000_000;
         task(&app, "t", json!({"next_run_at":stamp(now + 60_000)}));
-        let queue = queue_for(&app).unwrap();
+        let queue = queue_for(&app, "u1").unwrap();
         let mut projection = Projection { after: 0 };
         settle(&app, &queue, &mut projection, now);
         let enabled = |queue: &DurableQueue| -> Vec<String> {
@@ -1005,7 +1254,8 @@ mod tests {
             2
         );
         // Pause and resume through the API take effect immediately.
-        let call = |method: &str, path: &str| route(&app, method, path, "", b"").unwrap().unwrap();
+        let call =
+            |method: &str, path: &str| route(&app, method, path, "", b"", "u1").unwrap().unwrap();
         assert_eq!(call("POST", "/api/cron/t/pause").0, 200);
         assert!(
             enabled(&queue).is_empty(),
@@ -1029,9 +1279,9 @@ mod tests {
         let (_folder, app) = open();
         let now = 1_800_000_000_000;
         task(&app, "t", json!({"next_run_at":stamp(now + 3_600_000)}));
-        let queue = queue_for(&app).unwrap();
+        let queue = queue_for(&app, "u1").unwrap();
         let mut projection = Projection { after: 0 };
-        let call = |path: &str| route(&app, "POST", path, "", b"").unwrap().unwrap();
+        let call = |path: &str| route(&app, "POST", path, "", b"", "u1").unwrap().unwrap();
         assert_eq!(call("/api/cron/t/trigger").0, 202);
         assert_eq!(call("/api/cron/t/trigger").0, 409, "already queued");
         settle(&app, &queue, &mut projection, now);
@@ -1081,7 +1331,7 @@ mod tests {
             "past",
             json!({"task_type":"one_shot","fire_at":stamp(now - 3_600_000)}),
         );
-        let queue = queue_for(&app).unwrap();
+        let queue = queue_for(&app, "u1").unwrap();
         settle(&app, &queue, &mut Projection { after: 0 }, now);
         assert_eq!(row(&app, "bad")["status"], "error");
         assert!(
@@ -1126,6 +1376,225 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("herramienta externa")
+        );
+    }
+
+    #[test]
+    fn tasks_can_be_created_edited_and_inspected_through_the_api_and_are_validated_first() {
+        let (_folder, app) = open();
+        let api = |method: &str, path: &str, body: Value, user: &str| {
+            route(&app, method, path, "", body.to_string().as_bytes(), user)
+                .unwrap()
+                .unwrap()
+        };
+        let (status, created) = api(
+            "POST",
+            "/api/cron",
+            json!({"name":"Resumen","task":"Resume las noticias","task_type":"interval","interval_sec":3600}),
+            "u1",
+        );
+        assert_eq!(status, 201, "{created}");
+        let task = &created["task"];
+        let id = task["id"].as_str().unwrap().to_owned();
+        assert_eq!(
+            (
+                task["user_id"].clone(),
+                task["status"].clone(),
+                task["run_count"].clone()
+            ),
+            (json!("u1"), json!("active"), json!(0))
+        );
+        assert!(
+            task["next_run_at"].is_string()
+                && task["schedule_id"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("cron.{id}.")),
+            "the schedule exists at once: {task}"
+        );
+        // The shared scheduler's view of it.
+        let (_, inspected) = api("GET", &format!("/api/cron/{id}/schedule"), json!({}), "u1");
+        assert_eq!(
+            (
+                inspected["schedule"]["enabled"].clone(),
+                inspected["schedule"]["status"].clone()
+            ),
+            (json!(true), json!("active"))
+        );
+        assert_eq!(inspected["scheduleId"], task["schedule_id"]);
+        // Nobody else sees, edits or inspects it.
+        for (method, path) in [
+            ("PATCH", format!("/api/cron/{id}")),
+            ("GET", format!("/api/cron/{id}/schedule")),
+        ] {
+            assert_eq!(
+                api(method, &path, json!({"name":"x"}), "u2").0,
+                404,
+                "{method} {path}"
+            );
+        }
+        assert_eq!(
+            api("GET", "/api/cron", json!({}), "u2").1["tasks"],
+            json!([])
+        );
+        // Editing when it fires retires the old schedule and creates a new one.
+        let first_schedule = task["schedule_id"].as_str().unwrap().to_owned();
+        let (status, edited) = api(
+            "PATCH",
+            &format!("/api/cron/{id}"),
+            json!({"interval_sec":7200,"name":"Resumen largo"}),
+            "u1",
+        );
+        assert_eq!(status, 200, "{edited}");
+        assert_eq!(
+            (
+                edited["task"]["name"].clone(),
+                edited["task"]["interval_sec"].clone()
+            ),
+            (json!("Resumen largo"), json!(7200))
+        );
+        assert_ne!(edited["task"]["schedule_id"], json!(first_schedule));
+        let queue = queue_for(&app, "u1").unwrap();
+        let schedules = queue.list_schedules(50, None).unwrap();
+        let enabled: Vec<&str> = schedules["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["enabled"] == true)
+            .map(|s| s["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            (enabled.len(), schedules["items"].as_array().unwrap().len()),
+            (1, 2),
+            "one live schedule, the old one retired: {schedules}"
+        );
+        assert_eq!(enabled[0], edited["task"]["schedule_id"].as_str().unwrap());
+        // Switching to a cron expression works too.
+        let (status, cron) = api(
+            "PATCH",
+            &format!("/api/cron/{id}"),
+            json!({"task_type":"recurring","cron_expression":"0 8 * * *","timezone":"America/Bogota"}),
+            "u1",
+        );
+        assert_eq!(status, 200, "{cron}");
+        // What is not editable: ownership, status, counters and unknown fields.
+        for bad in [
+            json!({"user_id":"u2"}),
+            json!({"status":"completed"}),
+            json!({"run_count":99}),
+            json!({"id":"other"}),
+            json!({"bogus":1}),
+            json!({}),
+        ] {
+            assert_eq!(
+                api("PATCH", &format!("/api/cron/{id}"), bad.clone(), "u1").0,
+                400,
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            app.db.col_get("cronJobs", &id).unwrap().unwrap().doc["user_id"],
+            "u1"
+        );
+    }
+
+    #[test]
+    fn invalid_definitions_are_refused_at_creation_and_on_edit_not_left_to_fail_later() {
+        let (_folder, app) = open();
+        let api = |method: &str, path: &str, body: Value| {
+            route(&app, method, path, "", body.to_string().as_bytes(), "u1")
+                .unwrap()
+                .unwrap()
+        };
+        let base =
+            json!({"name":"Tarea","task":"Haz algo","task_type":"interval","interval_sec":60});
+        let with = |extra: Value| {
+            let mut value = base.clone();
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().cloned().unwrap());
+            value
+        };
+        for (bad, why) in [
+            (with(json!({"interval_sec":0})), "interval of zero"),
+            (
+                with(json!({"interval_sec":999_999_999})),
+                "interval beyond a year",
+            ),
+            (
+                with(
+                    json!({"task_type":"recurring","cron_expression":"80 * * * *","timezone":"UTC"}),
+                ),
+                "impossible cron",
+            ),
+            (
+                with(
+                    json!({"task_type":"recurring","cron_expression":"* * * * *","timezone":"Mars/Base"}),
+                ),
+                "unknown timezone",
+            ),
+            (
+                with(json!({"task_type":"one_shot"})),
+                "one-shot without a date",
+            ),
+            (with(json!({"task_type":"daily"})), "unknown type"),
+            (with(json!({"tool_name":"unsupported"})), "external tool"),
+            (
+                with(json!({"channel":"email"})),
+                "a channel that is not one of ours",
+            ),
+            (with(json!({"max_runs":0})), "zero runs"),
+            (with(json!({"start_at":"mañana"})), "bad date"),
+            (with(json!({"name":"  "})), "empty name"),
+            (with(json!({"task":""})), "empty task"),
+            (with(json!({"user_id":"u2"})), "choosing the owner"),
+            (with(json!({"status":"completed"})), "choosing the status"),
+            (json!({"name":"x"}), "missing fields"),
+            (json!([1, 2]), "not an object"),
+        ] {
+            let (status, body) = api("POST", "/api/cron", bad.clone());
+            assert_eq!(status, 400, "{why}: {body}");
+        }
+        assert!(
+            config::docs(&app.db, "cronJobs").unwrap().is_empty(),
+            "nothing invalid was stored"
+        );
+        let (_, created) = api("POST", "/api/cron", base.clone());
+        let id = created["task"]["id"].as_str().unwrap().to_owned();
+        assert_eq!(
+            api(
+                "PATCH",
+                &format!("/api/cron/{id}"),
+                json!({"interval_sec":0})
+            )
+            .0,
+            400
+        );
+        assert_eq!(
+            app.db.col_get("cronJobs", &id).unwrap().unwrap().doc["interval_sec"],
+            60,
+            "a refused edit changes nothing"
+        );
+        // A one-shot and a bounded recurring task are fine.
+        let at = stamp(server::now() + 3_600_000);
+        assert_eq!(
+            api(
+                "POST",
+                "/api/cron",
+                with(json!({"task_type":"one_shot","fire_at":at}))
+            )
+            .0,
+            201
+        );
+        assert_eq!(
+            api(
+                "POST",
+                "/api/cron",
+                with(json!({"max_runs":3,"stop_at":stamp(server::now() + 86_400_000)}))
+            )
+            .0,
+            201
         );
     }
 }

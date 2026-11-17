@@ -126,3 +126,75 @@ class McpTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ToolOperationUncertain):
             await Agent(model='test', tools=[Tool('fs_add', 'Add', {'type': 'object'}, execute)], provider=Provider()).run('Add')
         self.assertEqual(requests, 1)
+
+    async def test_a_server_that_changes_its_tools_is_noticed_and_refresh_tools_adopts_the_new_list(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = await connect('mutating', Path(directory) / 'calls')
+            try:
+                self.assertEqual([t['name'] for t in client.catalog], ['add', 'echo'])
+                self.assertFalse(client.tools_changed)
+                self.assertEqual((await client.call('echo', {'value': 'mutate'}))['structuredContent']['value'], 'mutate')
+                self.assertTrue(client.tools_changed)
+                self.assertEqual([t['name'] for t in client.catalog], ['add', 'echo'], 'unchanged until refreshed')
+                self.assertEqual(await client.refresh_tools(), {'added': ['extra'], 'removed': [], 'changed': ['add']})
+                self.assertFalse(client.tools_changed)
+                self.assertEqual([t['name'] for t in client.catalog], ['add', 'echo', 'extra'])
+                self.assertIn('mcp_extra', [t.name for t in client.tools()])
+            finally:
+                await client.close()
+
+
+
+def _sse_server():
+    """A minimal MCP server over the classic HTTP+SSE transport, as n8n's MCP Server Trigger speaks it."""
+    import http.server, json as _json, threading
+    state = {'stream': None, 'seen': [], 'ready': threading.Event()}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+        def log_message(self, *args): pass
+        def do_GET(self):
+            self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.end_headers()
+            state['stream'] = self.wfile
+            self.wfile.write(b': hi\n\nevent: endpoint\ndata: /messages?sessionId=s1\n\n'); self.wfile.flush()
+            state['ready'].wait(30)
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            self.send_response(202); self.send_header('Content-Length', '8'); self.end_headers(); self.wfile.write(b'Accepted')
+            state['seen'].append(body.get('method'))
+            if 'id' not in body: return
+            if body['method'] == 'initialize': result = {'protocolVersion': '2025-03-26', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'n8n-like', 'version': '1'}}
+            elif body['method'] == 'tools/list': result = {'tools': [{'name': 'echo', 'description': 'Echo', 'inputSchema': {'type': 'object', 'properties': {'value': {}}, 'required': ['value']}}]}
+            else: result = {'content': [{'type': 'text', 'text': _json.dumps(body['params']['arguments']['value'])}], 'structuredContent': {'value': body['params']['arguments']['value']}}
+            frame = f"event: message\ndata: {_json.dumps({'jsonrpc': '2.0', 'id': body['id'], 'result': result})}\n\n".encode()
+            state['stream'].write(frame); state['stream'].flush()
+
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler); server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, state
+
+
+class SseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_the_classic_http_sse_transport_connects_lists_and_calls_from_a_client_and_a_manager(self):
+        server, state = _sse_server(); url = f'http://127.0.0.1:{server.server_address[1]}/mcp/x'
+        client = None
+        try:
+            client = await McpClient.connect(transport='sse', url=url)
+            self.assertEqual(client.info['protocolVersion'], '2025-03-26')
+            self.assertEqual([t['name'] for t in client.catalog], ['echo'])
+            self.assertEqual((await client.call('echo', {'value': {'n': 2}}))['structuredContent'], {'value': {'n': 2}})
+            self.assertEqual(state['seen'], ['initialize', 'notifications/initialized', 'tools/list', 'tools/call'])
+            with self.assertRaisesRegex(ValueError, 'Process options'):
+                await McpClient.connect(transport='sse', url=url, command='x')
+            from hive_sdk import McpManager
+            async with McpManager() as manager:
+                report = await manager.apply({'calendar': {'transport': 'sse', 'url': url}})
+                self.assertEqual(report['added'], ['calendar']); self.assertEqual(manager.status[0]['state'], 'connected')
+                self.assertEqual([t['name'] for t in manager.catalog], ['calendar__echo'])
+        finally:
+            if client: await client.close()
+            state['ready'].set(); server.shutdown()
+
+
+if __name__ == '__main__':
+    unittest.main()

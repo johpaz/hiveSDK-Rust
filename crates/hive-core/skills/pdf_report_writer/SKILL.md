@@ -39,7 +39,7 @@ rules:
   - "Fonts are the standard PDF faces (sans, serif, mono) with Western European text. Characters outside it become ? and are counted in `replaced_characters`: report that to the user and rewrite those characters (for example ✓ as OK) instead of ignoring it"
   - "Links must be absolute http(s) URLs; other schemes are rejected"
   - "Table cells wrap by themselves; give `columns` weights and `align` per column (right for numbers). The header row repeats on every page"
-  - "Always verify by reading the PDF back with office_read_pdf. Its text extraction uses real glyph widths, so a wrong result means the document, not the reader; scanned or encrypted PDFs are reported in warnings, not guessed, and there is no OCR"
+  - "Always verify by reading the PDF back with office_read_pdf. Its text extraction uses real glyph widths, so a wrong result means the document, not the reader; scanned PDFs are reported in warnings, not guessed, and there is no OCR"
   - "When the source is a web page, read it with Obscura (obscura_markdown or obscura_extract) and compose the blocks yourself; never start Chromium, Chrome, Playwright or Puppeteer to print a page. Do not use obscura_pdf for a report: it is only an image of the page, with no text, no pagination and no styling"
   - "Never overwrite an existing file the user did not ask to replace"
 output_format:
