@@ -98,3 +98,16 @@ El gateway toma el contexto de la **fila del modelo en HiveDB** (`models.context
 3. Lo que ningún listado ni catálogo trae (NVIDIA, por ejemplo) hay que escribirlo a mano en la fila del modelo.
 
 Estado en la base real tras aplicarlo (con copia de seguridad previa): **los 94 modelos de chat habilitados o activos tienen ventana** (antes faltaba en Ollama, Gemini y cinco de NVIDIA).
+
+## Actualizar los modelos desde el propio proveedor
+
+`POST /api/providers/{id}/sync-models` consulta el listado del proveedor activo y guarda lo que **declara** de cada modelo, sin inventar nada:
+
+- **Ventana de contexto:** `context_window`, `context_length`, `inputTokenLimit`, `max_input_tokens`, `max_context_length`, `max_model_len` o `top_provider.context_length`. Un `0` guardado antes (el TypeScript Hive lo escribe para lo que no conoce) se trata como desconocido y se completa; una ventana ya fijada no se pisa.
+- **Capacidades:** las que declare el proveedor (Anthropic, Mistral, los parámetros soportados de OpenRouter) **se suman** a las que ya había; nunca se quita una.
+- **Tipo:** en Gemini sale de los métodos de generación (`bidiGenerateContent` = tiempo real, `embedContent` = embedding, `predict` = imagen, nombre con `tts` = voz).
+- **Precio:** solo si el proveedor lo publica (OpenRouter); nunca sustituye el del propietario.
+- **Retirados:** un modelo que el proveedor ya no lista se marca `unlisted: true`; no se borra ni se apaga (puede haber agentes apuntándole) y se desmarca si vuelve. Una lista vacía, o la de un proveedor que monta modelos bajo demanda (`hiveagents`, `piper`), no marca nada.
+- Los modelos nuevos de una sincronización quedan como `source: "discovered"`: el Hive TypeScript no los borra al arrancar (sí borra los `catalog`).
+
+Comprobado contra los proveedores reales activos (solo listas, sin llamar a ningún modelo): en NVIDIA marcó `unlisted` exactamente los modelos retirados que ya sabíamos (`kimi-k3`, `deepseek-v4-flash-0731`, `nemotron-3-super-120b-a12b`, `glm-5.3`). **Que un proveedor liste un modelo no garantiza que funcione**: de 23 LLMs listados por NVIDIA, 11 respondieron a una llamada real y varios devolvieron 404 «Function not found for account», 500 o agotaron el tiempo.
