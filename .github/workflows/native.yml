@@ -79,6 +79,16 @@ jobs:
           docker-options: --env RUSTFLAGS
           before-script-linux: cargo build --release --locked -p hive-agent-napi --target '${{ matrix.target }}'
           args: --release --locked -i ${{ runner.os == 'Linux' && 'python3.10' || 'python' }} --out ../../dist/wheels
+      # En Linux, maturin-action compila dentro de un contenedor (manylinux/musllinux) que corre como root:
+      # lo que crea (dist/, target/, packages/python/) queda con dueño root y los pasos siguientes, que
+      # corren como el usuario del runner, fallan con EACCES al hacer mkdir en dist/.
+      - name: Devolver al usuario del runner lo que creó el contenedor
+        if: runner.os == 'Linux'
+        run: |
+          for dir in dist target packages; do
+            [ -e "$dir" ] && sudo chown -R "$(id -u):$(id -g)" "$dir"
+          done
+          true
       - name: Package Node binding
         run: |
           node scripts/package-native.mjs --target '${{ matrix.key }}'
