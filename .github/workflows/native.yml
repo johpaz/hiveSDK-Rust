@@ -85,10 +85,14 @@ jobs:
       - name: Devolver al usuario del runner lo que creó el contenedor
         if: runner.os == 'Linux'
         run: |
+          echo "usuario: $(id -un) ($(id -u):$(id -g))"
+          echo "antes:";   ls -ld . dist dist/* target packages 2>&1 || true
           for dir in dist target packages; do
             [ -e "$dir" ] && sudo chown -R "$(id -u):$(id -g)" "$dir"
           done
-          true
+          echo "después:"; ls -ld . dist dist/* target packages 2>&1 || true
+          # Prueba de escritura donde package-native.mjs va a crear su carpeta: si falla, que falle aquí con contexto.
+          mkdir -p dist/npm && touch dist/npm/.escritura && rm dist/npm/.escritura
       - name: Package Node binding
         run: |
           node scripts/package-native.mjs --target '${{ matrix.key }}'
