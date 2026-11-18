@@ -38,9 +38,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      # 3.12 y no 3.10: este paso usa `tomllib`, que entró en Python 3.11. El mínimo que soporta el
+      # paquete (3.10) se prueba en ci.yml y native.yml, no aquí.
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
+          python-version: '3.12'
       - name: Versiones coherentes con el tag
         run: |
           python - <<'PY'
