@@ -4,6 +4,11 @@
   "type": "module",
   "description": "Hive agent SDK powered by Rust (development preview)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johpaz/hiveSDK-Rust.git",
+    "directory": "packages/npm"
+  },
   "engines": {
     "node": ">=24"
   },

@@ -37,9 +37,13 @@ if (config.os === 'linux') {
 }
 const destination = path.resolve(root, values.output, key);
 mkdirSync(destination, { recursive: true });
+// npm verifies the provenance of a published package against its `repository.url`: without it the registry
+// answers 422 ("repository.url is \"\", expected to match ... from provenance"). The native packages inherit it.
+if (!parent.repository?.url) throw new Error('REPOSITORY_REQUIRED: packages/npm/package.json needs repository.url (npm provenance)');
 const manifest = {
   name: `${parent.name}-${key}`, version: parent.version, private: parent.private ?? false,
   description: `Native Hive SDK binding for ${key}`, license: parent.license,
+  repository: { type: 'git', url: parent.repository.url },
   main: 'hive.node', files: ['hive.node', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt', 'THIRD_PARTY_INVENTORY.json'],
   os: [config.os], cpu: [config.cpu], ...(config.libc ? { libc: [config.libc] } : {}),
   engines: parent.engines,

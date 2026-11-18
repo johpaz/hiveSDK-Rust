@@ -142,7 +142,11 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: artifacts/wheels
-          attestations: true
+          # Con el secreto PYPI_API_TOKEN se publica con token de API (como en los demás proyectos); sin él,
+          # la acción usa Trusted Publishing (OIDC), que exige registrar este workflow como publicador en PyPI.
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          # Las atestaciones solo existen con Trusted Publishing: con token se desactivan.
+          attestations: ${{ secrets.PYPI_API_TOKEN == '' }}
 
   github-release:
     name: Release en GitHub
