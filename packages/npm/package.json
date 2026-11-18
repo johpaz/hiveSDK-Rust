@@ -1,7 +1,6 @@
 {
   "name": "@johpaz/hive-sdk-rust",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Hive agent SDK powered by Rust (development preview)",
   "license": "MIT",
