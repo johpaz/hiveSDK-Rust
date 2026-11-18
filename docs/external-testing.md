@@ -114,7 +114,7 @@ Abre cada archivo y comprueba lo que dice su propio texto: Word (encabezado a la
 ## 7. Publicación
 
 - **CI:** ejecutar `ci.yml` y `native.yml` (6 plataformas). En Windows y macOS, `native.yml` **compila los backends teóricos de computer use por primera vez de verdad**: si falla ahí, es la prueba de la sección 1.
-- **Avisos de terceros:** `python3 scripts/third-party-notices.py --check --require-complete` falla mientras haya 5 paquetes pendientes de **revisión legal humana** (`htmlescape`, `tiktoken-rs`, `rustls-platform-verifier-android` y dos `winapi-*-gnu`).
+- **Avisos de terceros:** `python3 scripts/third-party-notices.py --check --require-complete` falla mientras haya paquetes pendientes de **revisión legal humana**: quedan 3 (`rustls-platform-verifier-android` y dos `winapi-*-gnu`; `htmlescape` y `tiktoken-rs` se resolvieron el 2026-11-17, ver `docs/third-party-review.md`).
 - **Dependencia Git:** `hivedb-core` está fijado por commit, lo que bloquea `cargo publish`: hay que publicarlo en el registro o empaquetarlo.
 - **Credenciales:** npm y PyPI, solo para quien publica.
 

@@ -6,9 +6,7 @@ Cargo.lock SHA-256: d7c7eb0eb39c6d26fe015d5d814cbe756aeb94fc6abd95054b837c6af367
 Status: incomplete
 
 PENDING REVIEW
-- htmlescape@0.3.1: missing_notice_text
 - rustls-platform-verifier-android@0.1.1: missing_notice_text
-- tiktoken-rs@0.12.1: review_embedded_tokenizer_assets_attribution
 - winapi-i686-pc-windows-gnu@0.4.0: missing_notice_text
 - winapi-x86_64-pc-windows-gnu@0.4.0: missing_notice_text
 
@@ -657,6 +655,7 @@ Source: registry+https://github.com/rust-lang/crates.io-index
 
 htmlescape@0.3.1 — Apache-2.0 / MIT / MPL-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 daad7e32ff2b04d0a74c3c9364a7c209f9b5a71f60193ca3c393f8fa6cc0dd7f: Cargo.toml
 
 http@1.5.0 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -20374,6 +20373,26 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+DOCUMENT SHA-256 daad7e32ff2b04d0a74c3c9364a7c209f9b5a71f60193ca3c393f8fa6cc0dd7f
+========================================================================
+[package]
+name = "htmlescape"
+version = "0.3.1"
+authors = [ "Viktor Dahl <pazaconyoman@gmail.com>" ]
+license = "Apache-2.0 / MIT / MPL-2.0"
+repository = "https://github.com/veddan/rust-htmlescape"
+description = "A library for HTML entity encoding and decoding"
+
+[lib]
+name = "htmlescape"
+path = "src/lib.rs"
+
+[dev-dependencies]
+num = "0.1.26"
+rand = "0.3.14"
 
 
 ========================================================================

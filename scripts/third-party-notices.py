@@ -95,7 +95,7 @@ def collect(root, metadata):
                     if path.is_absolute() or '..' in path.parts: raise ValueError('unsafe archive member')
                     if not member.isfile(): continue
                     if relative == '.cargo_vcs_info.json': vcs = json.load(crate.extractfile(member))['git']['sha1']
-                    selected = path.name.lower().startswith(PREFIXES + ('authors',)) or relative == package.get('license_file')
+                    selected = path.name.lower().startswith(PREFIXES + ('authors',)) or relative == package.get('license_file') or relative in (rule or {}).get('packaged_evidence', [])
                     if not selected: continue
                     if member.size > 1024 * 1024: raise ValueError('notice archive member exceeds 1 MiB')
                     digest = document(crate.extractfile(member).read())

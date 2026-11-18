@@ -80,6 +80,18 @@ class NoticeTests(unittest.TestCase):
         self.rules['packages'] = [{'name': 'demo', 'version': '1.0.0', 'source': SOURCE, 'checksum_sha256': self.checksum, 'documents': [], 'packaged_evidence': ['AUTHORS']}]; self.save_rules()
         self.assertEqual(notices.collect(self.root, self.metadata)[0]['pending'], [])
 
+    def test_manifest_declaration_counts_as_notice_only_when_named_as_evidence_for_that_archive(self):
+        self.write_archive({'Cargo.toml': b'[package]\nlicense = "MIT"\nauthors = ["A Person"]\n', 'README.md': b'readme fixture'})
+        self.assertEqual(notices.collect(self.root, self.metadata)[0]['status'], 'incomplete')
+        self.rules['packages'] = [{'name': 'demo', 'version': '1.0.0', 'source': SOURCE, 'checksum_sha256': self.checksum, 'documents': [], 'packaged_evidence': ['Cargo.toml']}]; self.save_rules()
+        inventory, documents, _ = notices.collect(self.root, self.metadata)
+        self.assertEqual(inventory['packages'][0]['pending'], [])
+        origins = [n['origin']['path'] for n in inventory['packages'][0]['notices']]
+        self.assertEqual(origins, ['Cargo.toml'], 'only the named file is taken, not the README')
+        self.assertIn(b'A Person', b''.join(documents.values()))
+        self.rules['packages'][0]['checksum_sha256'] = '0' * 64; self.save_rules()
+        with self.assertRaises(ValueError): notices.collect(self.root, self.metadata)
+
     def submodule_fixture(self, parent_notice=True):
         child = 'b' * 40; source = b'// vendored tokenizer fixture'
         modules = b'[submodule "vendor/tokenizer"]\npath = vendor/tokenizer\nurl = https://github.com/test/tokenizer.git\n'

@@ -28,6 +28,17 @@
       ]
     },
     {
+      "name": "htmlescape",
+      "version": "0.3.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "e9025058dae765dee5070ec375f591e2ba14638c63feff74f13805a72e523163",
+      "packaged_evidence": [
+        "Cargo.toml"
+      ],
+      "documents": [],
+      "note": "Accepted by the project owner on 2026-11-17: the packaged Cargo.toml declaration (license = \"Apache-2.0 / MIT / MPL-2.0\", author Viktor Dahl) is the notice. Upstream (veddan/rust-htmlescape) has no license text at the commit that reproduces the archive (1699b539179798e705ad8464128492a0a0092876) nor at HEAD; there is no copyright line to quote."
+    },
+    {
       "name": "jni",
       "version": "0.22.4",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -431,12 +442,16 @@
       ]
     }
   ],
-  "manual_reviews": [
+  "manual_reviews": [],
+  "resolved_reviews": [
     {
       "name": "tiktoken-rs",
       "version": "0.12.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "reason": "review_embedded_tokenizer_assets_attribution"
+      "reason": "review_embedded_tokenizer_assets_attribution",
+      "decision": "The MIT license of openai/tiktoken (already in the inventory, pinned to commit 4e71bbe0c078468e00fefbf94b39849389f346e5) is accepted as covering the embedded tokenizer assets.",
+      "decided_by": "project owner",
+      "date": "2026-11-17"
     }
   ]
 }

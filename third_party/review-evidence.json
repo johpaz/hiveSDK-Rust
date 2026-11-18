@@ -66,7 +66,7 @@
   ],
   "htmlescape": {
     "version": "0.3.1",
-    "upstream_commit": "446b5a912c86c81ec44e961e08b8d13c2732a409",
+    "upstream_commit": "1699b539179798e705ad8464128492a0a0092876",
     "repository": "https://github.com/veddan/rust-htmlescape",
     "packaged_files": [
       {
@@ -95,7 +95,7 @@
       },
       {
         "path": "src/decode.rs",
-        "matches_upstream_blob": false
+        "matches_upstream_blob": true
       },
       {
         "path": "src/encode.rs",
@@ -115,10 +115,19 @@
       },
       {
         "path": "tests/test.rs",
-        "matches_upstream_blob": false
+        "matches_upstream_blob": true
       }
     ],
-    "notice_files_in_tree": []
+    "notice_files_in_tree": [],
+    "previous_commit_checked": {
+      "commit": "446b5a912c86c81ec44e961e08b8d13c2732a409",
+      "note": "Commit 'Add license info and Cargo metadata' (2016-10-28): 10 of 12 packaged files matched; src/decode.rs and tests/test.rs did not. It is the wrong commit, not a divergent crate."
+    },
+    "upstream_commit_subject": "Further improve error reporting (2016-11-07)",
+    "all_packaged_files_match_upstream": true,
+    "upstream_has_license_text": false,
+    "upstream_license_text_note": "No LICENSE/COPYING/NOTICE file exists in the upstream tree at this commit or at HEAD, and the README does not mention a license. The only declaration is Cargo.toml: license = \"Apache-2.0 / MIT / MPL-2.0\" (not an SPDX expression), author Viktor Dahl. No copyright line exists to quote.",
+    "checked": "2026-11-17"
   },
   "tiktoken": {
     "version": "0.12.1",
@@ -137,6 +146,36 @@
       "included_in_inventory": true,
       "chain": "upstream-sources.json via_submodule: pinned parent tree, gitmodules blob/repository, gitlink commit and packaged vendor source blob",
       "remaining_review": "embedded tokenizer assets attribution"
+    },
+    "licenses_checked": {
+      "wrapper_license_http": 200,
+      "openai_license_http": 200,
+      "note": "Both MIT texts are reachable at the pinned commits and already in the inventory. OpenAI publishes the vocabulary files from openaipublic.blob.core.windows.net without a license statement of their own; whether the MIT of the tiktoken repository covers them is the open legal question."
+    }
+  },
+  "platform_crates": {
+    "checked": "2026-11-17",
+    "scope": "Research evidence only. Not license clearance.",
+    "packages": [
+      "rustls-platform-verifier-android@0.1.1",
+      "winapi-i686-pc-windows-gnu@0.4.0",
+      "winapi-x86_64-pc-windows-gnu@0.4.0"
+    ],
+    "in_any_shipped_target_graph": false,
+    "note": "None appears in the six normal/build graphs of the supported targets (Windows ships as MSVC; no Android target). cargo tree -i finds no path from hive-agent-core.",
+    "winapi_gnu": {
+      "upstream_repository": "https://github.com/retep998/winapi-rs",
+      "upstream_has_license_files": [
+        "LICENSE-APACHE",
+        "LICENSE-MIT"
+      ],
+      "reproduces_archive": false,
+      "detail": "No upstream tag or branch reproduces either archive: best blob overlap by tag is about 45% of files for i686 and 84% for x86_64 (tag 0.3.6), and the archives hold import libraries absent from upstream HEAD. A commit therefore cannot be attributed to the crates."
+    },
+    "rustls_platform_verifier_android": {
+      "upstream_repository": "https://github.com/rustls/rustls-platform-verifier",
+      "packaged_files": 8,
+      "detail": "Archive carries no license text and no .cargo_vcs_info.json; upstream tags are v/0.x for the main crate, none names this Android crate version. Provenance not established."
     }
   }
 }

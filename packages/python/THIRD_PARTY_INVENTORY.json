@@ -2,28 +2,14 @@
   "schema_version": 1,
   "scope": "Conservative all-target workspace dependency inventory, including build/dev dependencies; not a list of code linked in an individual binary. License expressions are preserved, not selected or reinterpreted.",
   "cargo_lock_sha256": "d7c7eb0eb39c6d26fe015d5d814cbe756aeb94fc6abd95054b837c6af3675046",
-  "upstream_sources_sha256": "0a035ba07b0478e6574068151152e02d5496e08cff035f2822da0022b45589c9",
+  "upstream_sources_sha256": "15752e4f125f45fc75e13cff2c0b5387de5768edea61c03a21369fa50ccdf21c",
   "status": "incomplete",
   "pending": [
-    {
-      "name": "htmlescape",
-      "version": "0.3.1",
-      "reasons": [
-        "missing_notice_text"
-      ]
-    },
     {
       "name": "rustls-platform-verifier-android",
       "version": "0.1.1",
       "reasons": [
         "missing_notice_text"
-      ]
-    },
-    {
-      "name": "tiktoken-rs",
-      "version": "0.12.1",
-      "reasons": [
-        "review_embedded_tokenizer_assets_attribution"
       ]
     },
     {
@@ -3218,10 +3204,16 @@
       "checksum_sha256": "e9025058dae765dee5070ec375f591e2ba14638c63feff74f13805a72e523163",
       "declared_license": "Apache-2.0 / MIT / MPL-2.0",
       "repository": "https://github.com/veddan/rust-htmlescape",
-      "notices": [],
-      "pending": [
-        "missing_notice_text"
-      ]
+      "notices": [
+        {
+          "sha256": "daad7e32ff2b04d0a74c3c9364a7c209f9b5a71f60193ca3c393f8fa6cc0dd7f",
+          "origin": {
+            "kind": "crate_archive",
+            "path": "Cargo.toml"
+          }
+        }
+      ],
+      "pending": []
     },
     {
       "name": "http",
@@ -8334,9 +8326,7 @@
           }
         }
       ],
-      "pending": [
-        "review_embedded_tokenizer_assets_attribution"
-      ]
+      "pending": []
     },
     {
       "name": "time",
@@ -12106,6 +12096,10 @@
       "file": "third_party/notices/da28ccc6b158fc2d8cccc74e99794b1cff1d29bd7bbeb019442fcf0c04c6cad9.txt"
     },
     {
+      "sha256": "daad7e32ff2b04d0a74c3c9364a7c209f9b5a71f60193ca3c393f8fa6cc0dd7f",
+      "file": "third_party/notices/daad7e32ff2b04d0a74c3c9364a7c209f9b5a71f60193ca3c393f8fa6cc0dd7f.txt"
+    },
+    {
       "sha256": "db11fec9946737df39ca3898d9cd8c10ec6f6c3a884a6802b0ad0b81b4e8f23a",
       "file": "third_party/notices/db11fec9946737df39ca3898d9cd8c10ec6f6c3a884a6802b0ad0b81b4e8f23a.txt"
     },
@@ -12270,5 +12264,5 @@
       "file": "third_party/notices/ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7.txt"
     }
   ],
-  "notices_sha256": "2210c497ce4fce6bbc1b577ce6648dbd45bdf081e2c8a7d66ffc00bd960d0f60"
+  "notices_sha256": "b30418f5926948be0d042eee7a28eb0be2a13d75b90c0b0c9f09527f43476e42"
 }
