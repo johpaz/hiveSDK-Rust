@@ -240,6 +240,27 @@
       "note": "Packaged AUTHORS contains license grants and copyright notices."
     },
     {
+      "name": "rustls-platform-verifier-android",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-MIT",
+          "upstream_commit": "252e25161a91af476cbea620e29d277592d27ec7",
+          "sha256": "1c7cf76689c837a68ed8d704994e52a0f2940c087958f860d17f3186afbdcc0c",
+          "owner_accepted": true
+        },
+        {
+          "url": "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-APACHE",
+          "upstream_commit": "252e25161a91af476cbea620e29d277592d27ec7",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "owner_accepted": true
+        }
+      ],
+      "note": "Accepted by the project owner on 2026-11-18, same criterion as winapi-*-gnu: the LICENSE-MIT and LICENSE-APACHE of rustls/rustls-platform-verifier at tag v/0.7.1 (commit 252e25161a91af476cbea620e29d277592d27ec7) are the notice. The crate archive carries no license text and no .cargo_vcs_info.json, and no upstream tag was matched to it, so NO claim is made that it was built from that commit."
+    },
+    {
       "name": "tantivy-bitpacker",
       "version": "0.6.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -440,6 +461,48 @@
           "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
         }
       ]
+    },
+    {
+      "name": "winapi-i686-pc-windows-gnu",
+      "version": "0.4.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT",
+          "upstream_commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+          "sha256": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b",
+          "owner_accepted": true
+        },
+        {
+          "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-APACHE",
+          "upstream_commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "owner_accepted": true
+        }
+      ],
+      "note": "Accepted by the project owner on 2026-11-17: the LICENSE-MIT and LICENSE-APACHE of retep998/winapi-rs at tag 0.3.9 (commit 796a8e6c2971dc2ff1bcff166e6671284f9b5b6b) are the notice. No upstream tag or branch reproduces this crate archive, so NO claim is made that it was built from that commit."
+    },
+    {
+      "name": "winapi-x86_64-pc-windows-gnu",
+      "version": "0.4.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "checksum_sha256": "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f",
+      "documents": [
+        {
+          "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT",
+          "upstream_commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+          "sha256": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b",
+          "owner_accepted": true
+        },
+        {
+          "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-APACHE",
+          "upstream_commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "owner_accepted": true
+        }
+      ],
+      "note": "Accepted by the project owner on 2026-11-17: the LICENSE-MIT and LICENSE-APACHE of retep998/winapi-rs at tag 0.3.9 (commit 796a8e6c2971dc2ff1bcff166e6671284f9b5b6b) are the notice. No upstream tag or branch reproduces this crate archive, so NO claim is made that it was built from that commit."
     }
   ],
   "manual_reviews": [],

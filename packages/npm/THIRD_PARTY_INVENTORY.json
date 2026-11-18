@@ -2,31 +2,9 @@
   "schema_version": 1,
   "scope": "Conservative all-target workspace dependency inventory, including build/dev dependencies; not a list of code linked in an individual binary. License expressions are preserved, not selected or reinterpreted.",
   "cargo_lock_sha256": "d7c7eb0eb39c6d26fe015d5d814cbe756aeb94fc6abd95054b837c6af3675046",
-  "upstream_sources_sha256": "15752e4f125f45fc75e13cff2c0b5387de5768edea61c03a21369fa50ccdf21c",
-  "status": "incomplete",
-  "pending": [
-    {
-      "name": "rustls-platform-verifier-android",
-      "version": "0.1.1",
-      "reasons": [
-        "missing_notice_text"
-      ]
-    },
-    {
-      "name": "winapi-i686-pc-windows-gnu",
-      "version": "0.4.0",
-      "reasons": [
-        "missing_notice_text"
-      ]
-    },
-    {
-      "name": "winapi-x86_64-pc-windows-gnu",
-      "version": "0.4.0",
-      "reasons": [
-        "missing_notice_text"
-      ]
-    }
-  ],
+  "upstream_sources_sha256": "ecacf2f38f724c5e3d799c3a378a6b149f514750b3b11debf566186bf7811d7e",
+  "status": "notice_sources_collected",
+  "pending": [],
   "packages": [
     {
       "name": "adler2",
@@ -6950,10 +6928,27 @@
       "checksum_sha256": "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f",
       "declared_license": "MIT OR Apache-2.0",
       "repository": "https://github.com/rustls/rustls-platform-verifier",
-      "notices": [],
-      "pending": [
-        "missing_notice_text"
-      ]
+      "notices": [
+        {
+          "sha256": "1c7cf76689c837a68ed8d704994e52a0f2940c087958f860d17f3186afbdcc0c",
+          "origin": {
+            "kind": "owner_accepted_upstream",
+            "url": "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-MIT",
+            "commit": "252e25161a91af476cbea620e29d277592d27ec7",
+            "crate_provenance": "not established"
+          }
+        },
+        {
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "origin": {
+            "kind": "owner_accepted_upstream",
+            "url": "https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-APACHE",
+            "commit": "252e25161a91af476cbea620e29d277592d27ec7",
+            "crate_provenance": "not established"
+          }
+        }
+      ],
+      "pending": []
     },
     {
       "name": "rustls-webpki",
@@ -9640,10 +9635,27 @@
       "checksum_sha256": "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6",
       "declared_license": "MIT/Apache-2.0",
       "repository": "https://github.com/retep998/winapi-rs",
-      "notices": [],
-      "pending": [
-        "missing_notice_text"
-      ]
+      "notices": [
+        {
+          "sha256": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b",
+          "origin": {
+            "kind": "owner_accepted_upstream",
+            "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT",
+            "commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+            "crate_provenance": "not established"
+          }
+        },
+        {
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "origin": {
+            "kind": "owner_accepted_upstream",
+            "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-APACHE",
+            "commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+            "crate_provenance": "not established"
+          }
+        }
+      ],
+      "pending": []
     },
     {
       "name": "winapi-util",
@@ -9677,10 +9689,27 @@
       "checksum_sha256": "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f",
       "declared_license": "MIT/Apache-2.0",
       "repository": "https://github.com/retep998/winapi-rs",
-      "notices": [],
-      "pending": [
-        "missing_notice_text"
-      ]
+      "notices": [
+        {
+          "sha256": "ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b",
+          "origin": {
+            "kind": "owner_accepted_upstream",
+            "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT",
+            "commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+            "crate_provenance": "not established"
+          }
+        },
+        {
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+          "origin": {
+            "kind": "owner_accepted_upstream",
+            "url": "https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-APACHE",
+            "commit": "796a8e6c2971dc2ff1bcff166e6671284f9b5b6b",
+            "crate_provenance": "not established"
+          }
+        }
+      ],
+      "pending": []
     },
     {
       "name": "windows-core",
@@ -12264,5 +12293,5 @@
       "file": "third_party/notices/ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7.txt"
     }
   ],
-  "notices_sha256": "b30418f5926948be0d042eee7a28eb0be2a13d75b90c0b0c9f09527f43476e42"
+  "notices_sha256": "7b50219e2213ac117b8f073fa9be9a8e8ef862332aa69ab3062ec879faec72ca"
 }

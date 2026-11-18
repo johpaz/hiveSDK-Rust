@@ -92,6 +92,23 @@ class NoticeTests(unittest.TestCase):
         self.rules['packages'][0]['checksum_sha256'] = '0' * 64; self.save_rules()
         with self.assertRaises(ValueError): notices.collect(self.root, self.metadata)
 
+    def test_owner_accepted_upstream_text_needs_a_pinned_commit_a_note_and_the_archive_checksum_and_claims_no_provenance(self):
+        self.write_archive({'src/lib.rs': b'pub fn demo() {}'})
+        commit = 'c' * 40; text = b'Upstream permission and copyright fixture'; digest = notices.sha(text)
+        (self.root / f'third_party/upstream/{digest}.txt').write_bytes(text)
+        item = {'url': f'https://raw.githubusercontent.com/test/demo/{commit}/LICENSE-MIT', 'upstream_commit': commit, 'sha256': digest, 'owner_accepted': True}
+        rule = {'name': 'demo', 'version': '1.0.0', 'source': SOURCE, 'checksum_sha256': self.checksum, 'documents': [item], 'note': 'accepted by the owner'}
+        self.rules['packages'] = [rule]; self.save_rules()
+        inventory, _, _ = notices.collect(self.root, self.metadata)
+        self.assertEqual(inventory['packages'][0]['pending'], [])
+        origin = inventory['packages'][0]['notices'][0]['origin']
+        self.assertEqual((origin['kind'], origin['commit'], origin['crate_provenance']), ('owner_accepted_upstream', commit, 'not established'))
+        for change, message in [({'note': ''}, 'need a note'), ({'checksum_sha256': '0' * 64}, 'checksum mismatch')]:
+            self.rules['packages'] = [{**rule, **change}]; self.save_rules()
+            with self.assertRaisesRegex(ValueError, message): notices.collect(self.root, self.metadata)
+        self.rules['packages'] = [{**rule, 'documents': [{**item, 'upstream_commit': 'd' * 40}]}]; self.save_rules()
+        with self.assertRaisesRegex(ValueError, 'pinned upstream commit'): notices.collect(self.root, self.metadata)
+
     def submodule_fixture(self, parent_notice=True):
         child = 'b' * 40; source = b'// vendored tokenizer fixture'
         modules = b'[submodule "vendor/tokenizer"]\npath = vendor/tokenizer\nurl = https://github.com/test/tokenizer.git\n'

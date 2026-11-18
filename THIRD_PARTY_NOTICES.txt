@@ -3,12 +3,10 @@ THIRD-PARTY NOTICES — Hive SDK Rust
 Conservative all-target workspace dependency inventory, including build/dev dependencies; not a list of code linked in an individual binary. License expressions are preserved, not selected or reinterpreted.
 This mechanical inventory is not a legal compliance certification. Pending items are listed below.
 Cargo.lock SHA-256: d7c7eb0eb39c6d26fe015d5d814cbe756aeb94fc6abd95054b837c6af3675046
-Status: incomplete
+Status: notice_sources_collected
 
 PENDING REVIEW
-- rustls-platform-verifier-android@0.1.1: missing_notice_text
-- winapi-i686-pc-windows-gnu@0.4.0: missing_notice_text
-- winapi-x86_64-pc-windows-gnu@0.4.0: missing_notice_text
+- No mechanical gaps recorded; this does not certify compliance.
 
 PACKAGE INDEX
 
@@ -1405,6 +1403,8 @@ Source: registry+https://github.com/rust-lang/crates.io-index
 
 rustls-platform-verifier-android@0.1.1 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 1c7cf76689c837a68ed8d704994e52a0f2940c087958f860d17f3186afbdcc0c: https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-MIT
+  SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4: https://raw.githubusercontent.com/rustls/rustls-platform-verifier/252e25161a91af476cbea620e29d277592d27ec7/LICENSE-APACHE
 
 rustls-webpki@0.103.15 — ISC
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -1948,6 +1948,8 @@ Source: registry+https://github.com/rust-lang/crates.io-index
 
 winapi-i686-pc-windows-gnu@0.4.0 — MIT/Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b: https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT
+  SHA-256 b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1: https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-APACHE
 
 winapi-util@0.1.11 — Unlicense OR MIT
 Source: registry+https://github.com/rust-lang/crates.io-index
@@ -1956,6 +1958,8 @@ Source: registry+https://github.com/rust-lang/crates.io-index
 
 winapi-x86_64-pc-windows-gnu@0.4.0 — MIT/Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index
+  SHA-256 ce7bc3499fee93d5022ef430d5e4201e79a6d9154f3974e42f41349f0569e09b: https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-MIT
+  SHA-256 b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1: https://raw.githubusercontent.com/retep998/winapi-rs/796a8e6c2971dc2ff1bcff166e6671284f9b5b6b/LICENSE-APACHE
 
 windows-core@0.62.2 — MIT OR Apache-2.0
 Source: registry+https://github.com/rust-lang/crates.io-index

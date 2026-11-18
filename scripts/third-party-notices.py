@@ -121,6 +121,12 @@ def collect(root, metadata):
                 if 'via_submodule' in item:
                     if not source.startswith('registry+'): raise ValueError('submodule supplements require a verified crate archive')
                     origin = vendored_origin(root, item, vcs, package['repository'], archive)
+                elif item.get('owner_accepted'):
+                    # Text taken from the upstream repository at a pinned commit and accepted by the project owner
+                    # WITHOUT claiming the crate was built from that commit (its provenance is not established).
+                    if not re.fullmatch(r'[0-9a-f]{40}', item.get('upstream_commit', '')) or f"/{item['upstream_commit']}/" not in item['url']: raise ValueError('owner-accepted URL must name its pinned upstream commit')
+                    if not rule.get('note'): raise ValueError('owner-accepted documents need a note recording the decision')
+                    origin = {'kind': 'owner_accepted_upstream', 'url': item['url'], 'commit': item['upstream_commit'], 'crate_provenance': 'not established'}
                 else:
                     if item['commit'] != vcs or f'/{vcs}/' not in item['url']: raise ValueError('supplemental URL must name the exact VCS commit')
                     origin = {'kind': 'pinned_upstream', 'url': item['url'], 'commit': vcs}
