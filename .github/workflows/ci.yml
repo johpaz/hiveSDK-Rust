@@ -22,6 +22,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
+      # El gateway enlaza libdbus (llavero del sistema en Linux): sin sus cabeceras y pkg-config,
+      # `libdbus-sys` no compila. gateway.yml hace lo mismo dentro de su contenedor (dbus-devel).
+      - name: libdbus (llavero del sistema)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: rustup toolchain install 1.95.0 --profile minimal
       - run: cargo +1.95.0 check --workspace --all-targets --jobs 2 --locked
       - run: cargo +1.95.0 test -p hive-agent-core --test durable_handles --test structured_output --jobs 2 --locked
@@ -72,6 +76,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
+      # El gateway enlaza libdbus (llavero del sistema en Linux): sin sus cabeceras y pkg-config,
+      # `libdbus-sys` no compila. gateway.yml hace lo mismo dentro de su contenedor (dbus-devel).
+      - name: libdbus (llavero del sistema)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Rust toolchain
         run: rustup toolchain install 1.100.0 --profile minimal --component clippy,rustfmt
       - run: rustup default 1.100.0
